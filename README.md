@@ -4,6 +4,10 @@ Assemblying is an interactive digital circuit sketcher for building and explorin
 
 The project is currently a browser-based prototype built with React, TypeScript, and Vite.
 
+<img width="1470" height="730" alt="image" src="https://github.com/user-attachments/assets/dd10f450-eea8-4201-84cf-ff0e9f0c10f7" />
+
+
+
 ## Features
 
 - Canvas-based circuit editor with pan and zoom
