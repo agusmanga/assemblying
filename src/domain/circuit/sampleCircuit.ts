@@ -67,6 +67,16 @@ export function createSampleCircuit() {
     output.connect(pmos.drain)
     output.connect(nmos.drain)
 
+    const inputPin = new Pin({ id: "inverter:a", label: "A", role: "input", x: 120, y: 302 })
+    const outputPin = new Pin({ id: "inverter:y", label: "Y", role: "output", x: 620, y: 368 })
+    const vddPin = new Pin({ id: "inverter:vdd", label: "VDD", role: "input", x: 384, y: 100 })
+    const groundPin = new Pin({ id: "inverter:gnd", label: "GND", role: "input", x: 384, y: 600 })
+
+    input.connect(inputPin)
+    output.connect(outputPin)
+    vdd.connect(vddPin)
+    ground.connect(groundPin)
+
     const inverter = new Module({
         id: "inverter",
         name: "Inverter",
@@ -76,14 +86,31 @@ export function createSampleCircuit() {
         height: 500,
         children: [pmos, nmos],
         wires: [input, vdd, output, ground],
-        pins: [
-            new Pin({ id: "inverter:a", label: "A", role: "input", x: 120, y: 302 }),
-            new Pin({ id: "inverter:y", label: "Y", role: "output", x: 620, y: 368 }),
-            new Pin({ id: "inverter:vdd", label: "VDD", role: "input", x: 384, y: 100 }),
-            new Pin({ id: "inverter:gnd", label: "GND", role: "input", x: 384, y: 600 }),
-        ],
+        pins: [inputPin, outputPin, vddPin, groundPin],
         detailScale: 0.85,
     })
+
+    const rootInput = new Wire({
+        id: "root-input",
+        label: "A",
+        points: [
+            { x: -80, y: 302 },
+            { x: 120, y: 302 },
+        ],
+    })
+    rootInput.connect(inputPin)
+    rootInput.connectWire(input)
+
+    const rootOutput = new Wire({
+        id: "root-output",
+        label: "Y",
+        points: [
+            { x: 620, y: 368 },
+            { x: 810, y: 368 },
+        ],
+    })
+    rootOutput.connect(outputPin)
+    rootOutput.connectWire(output)
 
     const root = new Module({
         id: "root",
@@ -93,24 +120,7 @@ export function createSampleCircuit() {
         width: 900,
         height: 700,
         children: [inverter],
-        wires: [
-            new Wire({
-                id: "root-input",
-                label: "A",
-                points: [
-                    { x: -80, y: 302 },
-                    { x: 120, y: 302 },
-                ],
-            }),
-            new Wire({
-                id: "root-output",
-                label: "Y",
-                points: [
-                    { x: 620, y: 368 },
-                    { x: 810, y: 368 },
-                ],
-            }),
-        ],
+        wires: [rootInput, rootOutput],
         detailScale: 0,
     })
 

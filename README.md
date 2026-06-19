@@ -1,73 +1,56 @@
-# React + TypeScript + Vite
+# Assemblying
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Assemblying is an interactive digital circuit sketcher for building and exploring transistor-level logic. It focuses on a direct canvas workflow: place components, wire pins together, group circuitry into modules, and inspect the behavior of the resulting circuit.
 
-Currently, two official plugins are available:
+The project is currently a browser-based prototype built with React, TypeScript, and Vite.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
 
-## React Compiler
+- Canvas-based circuit editor with pan and zoom
+- NMOS, PMOS, VDD, GND, and toggleable input components
+- Wire creation between pins and existing wire segments
+- Signal coloring for high, low, and floating wires
+- Module creation from selected components
+- Generated module input/output pins for wires crossing module boundaries
+- Protected module internals: modules can be deleted, while ordinary inner components are preserved
+- Nested module rendering with shell/detail views based on zoom level
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Controls
 
-## Expanding the ESLint configuration
+- Click a component, pin, or wire to select it
+- Shift-click components to build a multi-selection
+- Click `Mod` to turn the selected components into a module
+- Click two pins, wires, or pin/wire endpoints to connect them
+- Double-click an input source to toggle its value
+- Use the mouse wheel to zoom
+- Drag the canvas to pan
+- Drag selected components to move them
+- Press `Delete` or `Backspace` to delete the selected removable item
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Development
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```sh
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Production build:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```sh
+npm run build
 ```
+
+Lint:
+
+```sh
+npm run lint
+```
+
+## Project Structure
+
+- `src/App.tsx` coordinates React state, canvas events, and editor actions
+- `src/ui/canvas/renderer.ts` contains canvas drawing code
+- `src/ui/circuit/editor.ts` contains circuit editing, hit testing, wiring, deletion, and modularisation logic
+- `src/domain/circuit/Model/` contains the circuit domain model
+- `src/domain/circuit/sampleCircuit.ts` defines the initial sample circuit
+
