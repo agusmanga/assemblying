@@ -5,7 +5,7 @@ import { Pin } from "../../domain/circuit/Model/Pin"
 import { PowerSource, type PowerSourceKind } from "../../domain/circuit/Model/PowerSource"
 import { Transistor, type TransistorKind } from "../../domain/circuit/Model/Transistor"
 import { Wire } from "../../domain/circuit/Model/Wire"
-import { gridMajor, pinHitRadius, wireHitRadius } from "../constants"
+import { gridMajor, moduleNestedRevealStep, moduleRevealRange, pinHitRadius, wireHitRadius } from "../constants"
 import { clamp, closestPointOnSegment, distance, snap } from "../geometry"
 import type { PendingConnection, PinHit, Point, WireHit } from "../types"
 
@@ -50,10 +50,20 @@ function pointInComponent(point: Point, component: Component) {
         && point.y <= component.y + component.height
 }
 
-export function findComponentAt(module: Module, point: Point, scale: number): Component | null {
+function moduleDetailRevealStart(module: Module, depth: number) {
+    return module.detailScale <= 0
+        ? 0
+        : module.detailScale + depth * moduleNestedRevealStep - moduleRevealRange / 2
+}
+
+function canReachModuleDetail(module: Module, scale: number, depth: number) {
+    return scale >= moduleDetailRevealStart(module, depth)
+}
+
+export function findComponentAt(module: Module, point: Point, scale: number, depth = 0): Component | null {
     for (const child of [...module.children].reverse()) {
-        if (child instanceof Module && scale >= child.detailScale) {
-            const nested = findComponentAt(child, point, scale)
+        if (child instanceof Module && canReachModuleDetail(child, scale, depth)) {
+            const nested = findComponentAt(child, point, scale, depth + 1)
             if (nested) {
                 return nested
             }
@@ -115,6 +125,18 @@ function collectWires(module: Module): Wire[] {
     for (const child of module.children) {
         if (child instanceof Module) {
             wires.push(...collectWires(child))
+        }
+    }
+
+    return wires
+}
+
+function collectVisibleWires(module: Module, scale: number, depth = 0): Wire[] {
+    const wires = [...module.wires]
+
+    for (const child of module.children) {
+        if (child instanceof Module && canReachModuleDetail(child, scale, depth)) {
+            wires.push(...collectVisibleWires(child, scale, depth + 1))
         }
     }
 
@@ -231,10 +253,10 @@ export function syncDirectWires(module: Module) {
     }
 }
 
-export function findPinAt(module: Module, point: Point, scale: number): PinHit | null {
+export function findPinAt(module: Module, point: Point, scale: number, depth = 0): PinHit | null {
     for (const child of [...module.children].reverse()) {
-        if (child instanceof Module && scale >= child.detailScale) {
-            const nested = findPinAt(child, point, scale)
+        if (child instanceof Module && canReachModuleDetail(child, scale, depth)) {
+            const nested = findPinAt(child, point, scale, depth + 1)
             if (nested) {
                 return nested
             }
@@ -304,7 +326,7 @@ export function findWireAt(module: Module, point: Point, scale: number): WireHit
     let closest: WireHit | null = null
     let closestDistance = wireHitRadius / scale
 
-    for (const wire of collectWires(module)) {
+    for (const wire of collectVisibleWires(module, scale)) {
         for (let index = 0; index < wire.points.length - 1; index += 1) {
             const hitPoint = closestPointOnSegment(point, wire.points[index], wire.points[index + 1])
             const hitDistance = distance(point, hitPoint)

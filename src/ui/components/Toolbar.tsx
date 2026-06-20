@@ -1,17 +1,11 @@
 import type { PowerSourceKind } from "../../domain/circuit/Model/PowerSource"
 import type { TransistorKind } from "../../domain/circuit/Model/Transistor"
-import type { ModuleDefinitionData } from "../../domain/circuit/schema/CircuitSchema"
 import { dividerStyle, toolbarStyle, toolButtonStyle, zoomStyle } from "../styles"
 
 type ToolbarProps = {
     scale: number
     canDeleteSelection: boolean
     canModularizeSelection: boolean
-    moduleLibrary: readonly ModuleDefinitionData[]
-    selectedLibraryModuleId: string
-    canSaveModuleSelection: boolean
-    canInsertLibraryModule: boolean
-    canEditLibraryModule: boolean
     onCreateTransistor: (kind: TransistorKind) => void
     onCreatePowerSource: (kind: PowerSourceKind) => void
     onCreateInputSource: () => void
@@ -20,13 +14,6 @@ type ToolbarProps = {
     onExportCircuit: () => void
     onImportCircuit: () => void
     onCreateNewCircuit: () => void
-    onSaveSelectedModule: () => void
-    onSelectLibraryModule: (id: string) => void
-    onInsertLibraryModule: () => void
-    onRenameLibraryModule: () => void
-    onDeleteLibraryModule: () => void
-    onExportLibraryModule: () => void
-    onImportLibraryModule: () => void
     onZoomOut: () => void
     onZoomIn: () => void
     onResetView: () => void
@@ -36,11 +23,6 @@ export function Toolbar({
     scale,
     canDeleteSelection,
     canModularizeSelection,
-    moduleLibrary,
-    selectedLibraryModuleId,
-    canSaveModuleSelection,
-    canInsertLibraryModule,
-    canEditLibraryModule,
     onCreateTransistor,
     onCreatePowerSource,
     onCreateInputSource,
@@ -49,13 +31,6 @@ export function Toolbar({
     onExportCircuit,
     onImportCircuit,
     onCreateNewCircuit,
-    onSaveSelectedModule,
-    onSelectLibraryModule,
-    onInsertLibraryModule,
-    onRenameLibraryModule,
-    onDeleteLibraryModule,
-    onExportLibraryModule,
-    onImportLibraryModule,
     onZoomOut,
     onZoomIn,
     onResetView,
@@ -152,108 +127,6 @@ export function Toolbar({
             style={{ ...toolButtonStyle, width: 44 }}
         >
             New
-        </button>
-        <div style={dividerStyle} />
-        <button
-            aria-label="Save selected module to library"
-            title="Save selected module to library"
-            disabled={!canSaveModuleSelection}
-            onClick={onSaveSelectedModule}
-            style={{
-                ...toolButtonStyle,
-                width: 48,
-                opacity: canSaveModuleSelection ? 1 : 0.45,
-                cursor: canSaveModuleSelection ? "pointer" : "default",
-            }}
-        >
-            Save
-        </button>
-        <select
-            aria-label="Module library"
-            title="Module library"
-            value={selectedLibraryModuleId}
-            onChange={(event) => onSelectLibraryModule(event.currentTarget.value)}
-            style={{
-                height: 34,
-                maxWidth: 160,
-                border: "1px solid rgba(38, 59, 53, 0.2)",
-                borderRadius: 6,
-                background: "#fffdf8",
-                color: "#263b35",
-                fontSize: 13,
-                fontWeight: 700,
-            }}
-        >
-            <option value="">Library</option>
-            {moduleLibrary.map((module) => (
-                <option key={module.id} value={module.id}>
-                    {module.name}
-                </option>
-            ))}
-        </select>
-        <button
-            aria-label="Insert selected library module"
-            title="Insert selected library module"
-            disabled={!canInsertLibraryModule}
-            onClick={onInsertLibraryModule}
-            style={{
-                ...toolButtonStyle,
-                width: 44,
-                opacity: canInsertLibraryModule ? 1 : 0.45,
-                cursor: canInsertLibraryModule ? "pointer" : "default",
-            }}
-        >
-            Use
-        </button>
-        <button
-            aria-label="Rename selected library module"
-            title="Rename selected library module"
-            disabled={!canEditLibraryModule}
-            onClick={onRenameLibraryModule}
-            style={{
-                ...toolButtonStyle,
-                width: 44,
-                opacity: canEditLibraryModule ? 1 : 0.45,
-                cursor: canEditLibraryModule ? "pointer" : "default",
-            }}
-        >
-            Ren
-        </button>
-        <button
-            aria-label="Delete selected library module"
-            title="Delete selected library module"
-            disabled={!canEditLibraryModule}
-            onClick={onDeleteLibraryModule}
-            style={{
-                ...toolButtonStyle,
-                width: 44,
-                opacity: canEditLibraryModule ? 1 : 0.45,
-                cursor: canEditLibraryModule ? "pointer" : "default",
-            }}
-        >
-            Del
-        </button>
-        <button
-            aria-label="Export selected library module"
-            title="Export selected library module"
-            disabled={!canEditLibraryModule}
-            onClick={onExportLibraryModule}
-            style={{
-                ...toolButtonStyle,
-                width: 56,
-                opacity: canEditLibraryModule ? 1 : 0.45,
-                cursor: canEditLibraryModule ? "pointer" : "default",
-            }}
-        >
-            ExpM
-        </button>
-        <button
-            aria-label="Import module into library"
-            title="Import module into library"
-            onClick={onImportLibraryModule}
-            style={{ ...toolButtonStyle, width: 56 }}
-        >
-            ImpM
         </button>
         <div style={dividerStyle} />
         <button

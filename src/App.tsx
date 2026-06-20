@@ -23,7 +23,7 @@ import {
 } from "./domain/circuit/storage/moduleLibraryStorage"
 import { drawComponent, drawGrid, drawWire, setupCanvas, strokePath } from "./ui/canvas/renderer"
 import { maxScale, minScale } from "./ui/constants"
-import { StatusBar } from "./ui/components/StatusBar"
+import { LibrarySidebar } from "./ui/components/LibrarySidebar"
 import { Toolbar } from "./ui/components/Toolbar"
 import {
     addModuleTo,
@@ -87,6 +87,7 @@ export function App() {
     const [viewport, setViewport] = useState<Viewport>({ x: 180, y: 90, scale: 0.86 })
     const [moduleLibrary, setModuleLibrary] = useState<ModuleDefinitionData[]>(() => listModuleDefinitions())
     const [selectedLibraryModuleId, setSelectedLibraryModuleId] = useState<string>("")
+    const [isLibraryVisible, setIsLibraryVisible] = useState(true)
     const pendingPinId = pendingConnection?.type === "pin" ? pendingConnection.pinId : null
     const canDeleteSelection = !!selectedWireId || selectedIds.some((id) => canRemoveComponent(circuit, id))
     const canModularizeSelection = selectedIds.length > 0 && !selectedWireId
@@ -630,28 +631,26 @@ export function App() {
             onExportCircuit={exportCircuit}
             onImportCircuit={() => importInputRef.current?.click()}
             onCreateNewCircuit={createNewCircuit}
-            moduleLibrary={moduleLibrary}
-            selectedLibraryModuleId={selectedLibraryModuleId}
-            canSaveModuleSelection={canSaveModuleSelection}
-            canInsertLibraryModule={canInsertLibraryModule}
-            canEditLibraryModule={canEditLibraryModule}
-            onSaveSelectedModule={saveSelectedModuleToLibrary}
-            onSelectLibraryModule={setSelectedLibraryModuleId}
-            onInsertLibraryModule={insertLibraryModule}
-            onRenameLibraryModule={renameSelectedLibraryModule}
-            onDeleteLibraryModule={deleteSelectedLibraryModule}
-            onExportLibraryModule={exportSelectedLibraryModule}
-            onImportLibraryModule={() => importLibraryModuleInputRef.current?.click()}
             onZoomOut={() => setViewport((current) => ({ ...current, scale: clamp(current.scale / 1.25, minScale, maxScale) }))}
             onZoomIn={() => setViewport((current) => ({ ...current, scale: clamp(current.scale * 1.25, minScale, maxScale) }))}
             onResetView={() => setViewport({ x: 180, y: 90, scale: 0.86 })}
         />
 
-        <StatusBar
-            selectedIds={selectedIds}
-            selectedWireId={selectedWireId}
-            pendingConnection={pendingConnection}
-            itemCount={circuit.children.length}
+        <LibrarySidebar
+            isOpen={isLibraryVisible}
+            modules={moduleLibrary}
+            selectedModuleId={selectedLibraryModuleId}
+            canSaveSelection={canSaveModuleSelection}
+            canInsertModule={canInsertLibraryModule}
+            canEditModule={canEditLibraryModule}
+            onSaveSelectedModule={saveSelectedModuleToLibrary}
+            onSelectModule={setSelectedLibraryModuleId}
+            onInsertModule={insertLibraryModule}
+            onRenameModule={renameSelectedLibraryModule}
+            onDeleteModule={deleteSelectedLibraryModule}
+            onExportModule={exportSelectedLibraryModule}
+            onImportModule={() => importLibraryModuleInputRef.current?.click()}
+            onToggle={() => setIsLibraryVisible((visible) => !visible)}
         />
     </main>
 }

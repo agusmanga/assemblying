@@ -5,9 +5,47 @@ import type { Pin } from "../../domain/circuit/Model/Pin"
 import { PowerSource } from "../../domain/circuit/Model/PowerSource"
 import { Transistor } from "../../domain/circuit/Model/Transistor"
 import type { Wire } from "../../domain/circuit/Model/Wire"
-import { gridMajor, gridMinor } from "../constants"
+import { gridMajor, gridMinor, moduleNestedRevealStep, moduleRevealRange } from "../constants"
 import { screenToWorld } from "../geometry"
 import type { Point, Viewport } from "../types"
+
+function smoothstep(edge0: number, edge1: number, value: number) {
+    const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)))
+    return t * t * (3 - 2 * t)
+}
+
+function moduleRevealScale(module: Module, depth: number) {
+    return module.detailScale + depth * moduleNestedRevealStep
+}
+
+function moduleRevealAlpha(module: Module, scale: number, depth: number) {
+    if (module.detailScale <= 0) {
+        return {
+            shell: 0,
+            detail: 1,
+        }
+    }
+
+    const halfRange = moduleRevealRange / 2
+    const revealScale = moduleRevealScale(module, depth)
+    const detail = smoothstep(revealScale - halfRange, revealScale + halfRange, scale)
+
+    return {
+        shell: 1 - detail,
+        detail,
+    }
+}
+
+function drawWithAlpha(context: CanvasRenderingContext2D, alpha: number, draw: () => void) {
+    if (alpha <= 0) {
+        return
+    }
+
+    context.save()
+    context.globalAlpha *= alpha
+    draw()
+    context.restore()
+}
 
 export function setupCanvas(canvas: HTMLCanvasElement) {
     const context = canvas.getContext("2d")
@@ -295,7 +333,6 @@ function drawModuleShell(
     context: CanvasRenderingContext2D,
     module: Module,
     scale: number,
-    selectedIds: readonly string[],
     pendingPinId: string | null,
 ) {
     context.save()
@@ -323,10 +360,6 @@ function drawModuleShell(
     for (const pin of module.pins) {
         drawPin(context, pin, scale, pendingPinId === pin.id)
     }
-
-    if (selectedIds.includes(module.id)) {
-        drawSelection(context, module, scale)
-    }
     context.restore()
 }
 
@@ -334,6 +367,7 @@ function drawModuleDetail(
     context: CanvasRenderingContext2D,
     module: Module,
     scale: number,
+    depth: number,
     selectedIds: readonly string[],
     selectedWireId: string | null,
     pendingPinId: string | null,
@@ -357,15 +391,11 @@ function drawModuleDetail(
     }
 
     for (const child of module.children) {
-        drawComponent(context, child, scale, selectedIds, selectedWireId, pendingPinId)
+        drawComponent(context, child, scale, selectedIds, selectedWireId, pendingPinId, depth + 1)
     }
 
     for (const pin of module.pins) {
         drawPin(context, pin, scale, pendingPinId === pin.id)
-    }
-
-    if (selectedIds.includes(module.id)) {
-        drawSelection(context, module, scale)
     }
     context.restore()
 }
@@ -377,6 +407,7 @@ export function drawComponent(
     selectedIds: readonly string[],
     selectedWireId: string | null,
     pendingPinId: string | null,
+    depth = 0,
 ) {
     if (component instanceof Transistor) {
         drawTransistor(context, component, scale, selectedIds, pendingPinId)
@@ -394,10 +425,17 @@ export function drawComponent(
     }
 
     if (component instanceof Module) {
-        if (scale >= component.detailScale) {
-            drawModuleDetail(context, component, scale, selectedIds, selectedWireId, pendingPinId)
-        } else {
-            drawModuleShell(context, component, scale, selectedIds, pendingPinId)
+        const alpha = moduleRevealAlpha(component, scale, depth)
+
+        drawWithAlpha(context, alpha.detail, () => {
+            drawModuleDetail(context, component, scale, depth, selectedIds, selectedWireId, pendingPinId)
+        })
+        drawWithAlpha(context, alpha.shell, () => {
+            drawModuleShell(context, component, scale, pendingPinId)
+        })
+
+        if (selectedIds.includes(component.id)) {
+            drawSelection(context, component, scale)
         }
     }
 }
