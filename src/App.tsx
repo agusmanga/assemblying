@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import type { PowerSourceKind } from "./domain/circuit/Model/PowerSource"
 import type { TransistorKind } from "./domain/circuit/Model/Transistor"
 import { createSampleCircuit } from "./domain/circuit/sampleCircuit"
+import { deserializeModule, serializeModule } from "./domain/circuit/serialization/moduleSerializer"
+import type { ModuleDefinitionData } from "./domain/circuit/schema/CircuitSchema"
 import { drawComponent, drawGrid, drawWire, setupCanvas, strokePath } from "./ui/canvas/renderer"
 import { maxScale, minScale } from "./ui/constants"
 import { StatusBar } from "./ui/components/StatusBar"
@@ -30,7 +32,8 @@ import type { DragState, PendingConnection, Point, Viewport } from "./ui/types"
 export function App() {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const dragRef = useRef<DragState | null>(null)
-    const [circuit] = useState(() => createSampleCircuit())
+    const importInputRef = useRef<HTMLInputElement | null>(null)
+    const [circuit, setCircuit] = useState(() => createSampleCircuit())
     const [revision, setRevision] = useState(0)
     const [selectedIds, setSelectedIds] = useState<string[]>([])
     const [selectedWireId, setSelectedWireId] = useState<string | null>(null)
@@ -127,6 +130,36 @@ export function App() {
             setSelectedWireId(null)
             setPendingConnection(null)
             rerenderCircuit()
+        }
+    }
+
+    function exportCircuit() {
+        const data = serializeModule(circuit)
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = `${circuit.name.toLowerCase().replaceAll(/\s+/g, "-")}.assemblying-module.json`
+        link.click()
+        URL.revokeObjectURL(url)
+    }
+
+    async function importCircuitFile(file: File) {
+        try {
+            const text = await file.text()
+            const data = JSON.parse(text) as ModuleDefinitionData
+            const nextCircuit = deserializeModule(data)
+            setCircuit(nextCircuit)
+            setSelectedIds([])
+            setSelectedWireId(null)
+            setPendingConnection(null)
+            setPointerWorld(null)
+            dragRef.current = null
+            setIsDraggingComponent(false)
+            setRevision((current) => current + 1)
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Unknown import error"
+            window.alert(`Could not import circuit JSON: ${message}`)
         }
     }
 
@@ -230,6 +263,19 @@ export function App() {
     }
 
     return <main style={appStyle}>
+        <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json,.assemblying-module.json"
+            style={{ display: "none" }}
+            onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ""
+                if (file) {
+                    void importCircuitFile(file)
+                }
+            }}
+        />
         <canvas
             ref={canvasRef}
             style={{
@@ -388,6 +434,8 @@ export function App() {
             onCreateInputSource={createInputSource}
             onDeleteSelected={deleteSelected}
             onModularizeSelected={modularizeSelected}
+            onExportCircuit={exportCircuit}
+            onImportCircuit={() => importInputRef.current?.click()}
             onZoomOut={() => setViewport((current) => ({ ...current, scale: clamp(current.scale / 1.25, minScale, maxScale) }))}
             onZoomIn={() => setViewport((current) => ({ ...current, scale: clamp(current.scale * 1.25, minScale, maxScale) }))}
             onResetView={() => setViewport({ x: 180, y: 90, scale: 0.86 })}

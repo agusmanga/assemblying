@@ -11,6 +11,8 @@ type ToolbarProps = {
     onCreateInputSource: () => void
     onDeleteSelected: () => void
     onModularizeSelected: () => void
+    onExportCircuit: () => void
+    onImportCircuit: () => void
     onZoomOut: () => void
     onZoomIn: () => void
     onResetView: () => void
@@ -25,6 +27,8 @@ export function Toolbar({
     onCreateInputSource,
     onDeleteSelected,
     onModularizeSelected,
+    onExportCircuit,
+    onImportCircuit,
     onZoomOut,
     onZoomIn,
     onResetView,
@@ -96,6 +100,23 @@ export function Toolbar({
             }}
         >
             Mod
+        </button>
+        <div style={dividerStyle} />
+        <button
+            aria-label="Export circuit JSON"
+            title="Export circuit JSON"
+            onClick={onExportCircuit}
+            style={{ ...toolButtonStyle, width: 44 }}
+        >
+            Exp
+        </button>
+        <button
+            aria-label="Import circuit JSON"
+            title="Import circuit JSON"
+            onClick={onImportCircuit}
+            style={{ ...toolButtonStyle, width: 44 }}
+        >
+            Imp
         </button>
         <div style={dividerStyle} />
         <button
