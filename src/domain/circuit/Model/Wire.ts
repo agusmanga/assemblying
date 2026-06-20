@@ -37,7 +37,8 @@ export class Wire {
     }
 
     set signal(value: Signal) {
-        this.root()._signal = value
+        const root = this.root()
+        root._signal = mergeSignal(root._signal, value)
     }
 
     get fixedSignal(): Signal {
@@ -117,5 +118,5 @@ function mergeSignal(a: Signal, b: Signal): Signal {
         return a
     }
 
-    return null
+    return 1
 }

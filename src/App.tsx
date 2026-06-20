@@ -33,6 +33,7 @@ import {
     canRemoveComponent,
     connectEndpoints,
     createModuleFromSelection,
+    demodularizeModule,
     findComponentAt,
     findComponentById,
     findPinAt,
@@ -93,6 +94,7 @@ export function App() {
     const canModularizeSelection = selectedIds.length > 0 && !selectedWireId
     const canSaveModuleSelection = selectedIds.length === 1
         && findComponentById(circuit, selectedIds[0]) instanceof Module
+    const canDemodularizeSelection = canSaveModuleSelection
     const canInsertLibraryModule = selectedLibraryModuleId.length > 0
     const canEditLibraryModule = selectedLibraryModuleId.length > 0
 
@@ -179,6 +181,20 @@ export function App() {
         const module = createModuleFromSelection(circuit, selectedIds)
         if (module) {
             setSelectedIds([module.id])
+            setSelectedWireId(null)
+            setPendingConnection(null)
+            rerenderCircuit()
+        }
+    }
+
+    function demodularizeSelected() {
+        if (selectedIds.length !== 1) {
+            return
+        }
+
+        const promotedChildren = demodularizeModule(circuit, selectedIds[0])
+        if (promotedChildren) {
+            setSelectedIds(promotedChildren.map((component) => component.id))
             setSelectedWireId(null)
             setPendingConnection(null)
             rerenderCircuit()
@@ -623,11 +639,13 @@ export function App() {
             scale={viewport.scale}
             canDeleteSelection={canDeleteSelection}
             canModularizeSelection={canModularizeSelection}
+            canDemodularizeSelection={canDemodularizeSelection}
             onCreateTransistor={createTransistor}
             onCreatePowerSource={createPowerSource}
             onCreateInputSource={createInputSource}
             onDeleteSelected={deleteSelected}
             onModularizeSelected={modularizeSelected}
+            onDemodularizeSelected={demodularizeSelected}
             onExportCircuit={exportCircuit}
             onImportCircuit={() => importInputRef.current?.click()}
             onCreateNewCircuit={createNewCircuit}

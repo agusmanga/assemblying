@@ -177,6 +177,74 @@ export function removeComponent(root: Module, componentId: string) {
     return true
 }
 
+export function demodularizeModule(root: Module, moduleId: string) {
+    const parent = findParentModule(root, moduleId)
+    if (!parent) {
+        return null
+    }
+
+    const moduleIndex = parent.children.findIndex((child) => child.id === moduleId)
+    const module = parent.children[moduleIndex]
+    if (!(module instanceof Module)) {
+        return null
+    }
+
+    const modulePins = new Set(module.pins)
+    const promotedChildren = [...module.children]
+    const removedBridgeWires = new Set<Wire>()
+
+    for (const modulePin of module.pins) {
+        const bridgeWires = module.wires.filter((wire) => wire.connections.includes(modulePin))
+        const internalPins = bridgeWires.flatMap((wire) => wire.connections.filter((pin) => !modulePins.has(pin)))
+        const externalWires = parent.wires.filter((wire) => wire.connections.includes(modulePin))
+
+        for (const bridgeWire of bridgeWires) {
+            removedBridgeWires.add(bridgeWire)
+        }
+
+        if (internalPins.length === 0) {
+            continue
+        }
+
+        const internalCenter = {
+            x: internalPins.reduce((sum, pin) => sum + pin.x, 0) / internalPins.length,
+            y: internalPins.reduce((sum, pin) => sum + pin.y, 0) / internalPins.length,
+        }
+
+        for (const externalWire of externalWires) {
+            externalWire.connections = externalWire.connections.filter((pin) => pin !== modulePin)
+            externalWire.points = externalWire.points.map((point) => (
+                distance(point, modulePin) < 1 ? { ...internalCenter } : point
+            ))
+
+            for (const bridgeWire of bridgeWires) {
+                for (const connectedWire of bridgeWire.connectedWires) {
+                    if (connectedWire !== externalWire && !bridgeWires.includes(connectedWire)) {
+                        externalWire.connectWire(connectedWire)
+                    }
+                }
+            }
+
+            for (const pin of internalPins) {
+                externalWire.connect(pin)
+            }
+        }
+    }
+
+    const promotedWires = module.wires.filter((wire) => !removedBridgeWires.has(wire))
+    const parentWires = [...parent.wires, ...promotedWires]
+
+    for (const wire of parentWires) {
+        wire.connections = wire.connections.filter((pin) => !modulePins.has(pin))
+    }
+
+    parent.children.splice(moduleIndex, 1, ...promotedChildren)
+    parent.wires = parentWires
+    rebuildWireNetworks(root)
+
+    return promotedChildren
+}
+
 function findWireOwner(module: Module, wireId: string): Module | null {
     if (module.wires.some((wire) => wire.id === wireId)) {
         return module
@@ -210,6 +278,10 @@ function rebuildWireNetworks(module: Module) {
     }
 }
 
+function findReplacementWireForPin(root: Module, removedWire: Wire, pin: Pin) {
+    return collectWires(root).find((wire) => wire !== removedWire && wire.connections.includes(pin)) ?? null
+}
+
 export function removeWire(root: Module, wireId: string) {
     const owner = findWireOwner(root, wireId)
     const wire = findWireById(root, wireId)
@@ -220,7 +292,7 @@ export function removeWire(root: Module, wireId: string) {
 
     for (const pin of wire.connections) {
         if (pin.wire === wire) {
-            pin.wire = null
+            pin.wire = findReplacementWireForPin(root, wire, pin)
         }
     }
 

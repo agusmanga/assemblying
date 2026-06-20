@@ -6,11 +6,13 @@ type ToolbarProps = {
     scale: number
     canDeleteSelection: boolean
     canModularizeSelection: boolean
+    canDemodularizeSelection: boolean
     onCreateTransistor: (kind: TransistorKind) => void
     onCreatePowerSource: (kind: PowerSourceKind) => void
     onCreateInputSource: () => void
     onDeleteSelected: () => void
     onModularizeSelected: () => void
+    onDemodularizeSelected: () => void
     onExportCircuit: () => void
     onImportCircuit: () => void
     onCreateNewCircuit: () => void
@@ -23,11 +25,13 @@ export function Toolbar({
     scale,
     canDeleteSelection,
     canModularizeSelection,
+    canDemodularizeSelection,
     onCreateTransistor,
     onCreatePowerSource,
     onCreateInputSource,
     onDeleteSelected,
     onModularizeSelected,
+    onDemodularizeSelected,
     onExportCircuit,
     onImportCircuit,
     onCreateNewCircuit,
@@ -102,6 +106,20 @@ export function Toolbar({
             }}
         >
             Mod
+        </button>
+        <button
+            aria-label="Break selected module apart"
+            title="Break selected module apart"
+            disabled={!canDemodularizeSelection}
+            onClick={onDemodularizeSelected}
+            style={{
+                ...toolButtonStyle,
+                width: 58,
+                opacity: canDemodularizeSelection ? 1 : 0.45,
+                cursor: canDemodularizeSelection ? "pointer" : "default",
+            }}
+        >
+            Unmod
         </button>
         <div style={dividerStyle} />
         <button
