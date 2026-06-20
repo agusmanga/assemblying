@@ -361,6 +361,11 @@ export function addInputSourceTo(module: Module, center: Point) {
     return input
 }
 
+export function addModuleTo(module: Module, child: Module) {
+    module.addChild(child)
+    return child
+}
+
 function modulePinPosition(module: Module, target: Point, index: number, total: number) {
     const leftDistance = Math.abs(target.x - module.x)
     const rightDistance = Math.abs(target.x - (module.x + module.width))

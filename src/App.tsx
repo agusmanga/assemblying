@@ -1,14 +1,32 @@
 import { useEffect, useRef, useState } from "react"
+import { Module } from "./domain/circuit/Model/Module"
 import type { PowerSourceKind } from "./domain/circuit/Model/PowerSource"
 import type { TransistorKind } from "./domain/circuit/Model/Transistor"
+import {
+    instantiateModuleDefinition,
+    normalizeModuleDefinitionForLibrary,
+} from "./domain/circuit/library/moduleDefinitionInstance"
 import { createSampleCircuit } from "./domain/circuit/sampleCircuit"
 import { deserializeModule, serializeModule } from "./domain/circuit/serialization/moduleSerializer"
 import type { ModuleDefinitionData } from "./domain/circuit/schema/CircuitSchema"
+import {
+    clearCircuitLocalStorage,
+    loadCircuitFromLocalStorage,
+    saveCircuitToLocalStorage,
+} from "./domain/circuit/storage/circuitLocalStorage"
+import {
+    deleteModuleDefinition,
+    listModuleDefinitions,
+    loadModuleDefinition,
+    renameModuleDefinition,
+    saveModuleDefinition,
+} from "./domain/circuit/storage/moduleLibraryStorage"
 import { drawComponent, drawGrid, drawWire, setupCanvas, strokePath } from "./ui/canvas/renderer"
 import { maxScale, minScale } from "./ui/constants"
 import { StatusBar } from "./ui/components/StatusBar"
 import { Toolbar } from "./ui/components/Toolbar"
 import {
+    addModuleTo,
     addInputSourceTo,
     addPowerSourceTo,
     addTransistorTo,
@@ -29,11 +47,37 @@ import { clamp, screenToWorld } from "./ui/geometry"
 import { appStyle } from "./ui/styles"
 import type { DragState, PendingConnection, Point, Viewport } from "./ui/types"
 
+function createInitialCircuit() {
+    try {
+        const savedCircuit = loadCircuitFromLocalStorage()
+        return savedCircuit ? deserializeModule(savedCircuit) : createSampleCircuit()
+    } catch (error) {
+        console.error("Could not load saved circuit", error)
+        clearCircuitLocalStorage()
+        return createSampleCircuit()
+    }
+}
+
+function circuitInsertionPoint(circuit: Module, fallback: Point): Point {
+    if (circuit.children.length === 0) {
+        return fallback
+    }
+
+    const maxX = Math.max(...circuit.children.map((component) => component.x + component.width))
+    const minY = Math.min(...circuit.children.map((component) => component.y))
+
+    return {
+        x: maxX + 72,
+        y: minY,
+    }
+}
+
 export function App() {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const dragRef = useRef<DragState | null>(null)
     const importInputRef = useRef<HTMLInputElement | null>(null)
-    const [circuit, setCircuit] = useState(() => createSampleCircuit())
+    const importLibraryModuleInputRef = useRef<HTMLInputElement | null>(null)
+    const [circuit, setCircuit] = useState(createInitialCircuit)
     const [revision, setRevision] = useState(0)
     const [selectedIds, setSelectedIds] = useState<string[]>([])
     const [selectedWireId, setSelectedWireId] = useState<string | null>(null)
@@ -41,9 +85,15 @@ export function App() {
     const [pointerWorld, setPointerWorld] = useState<Point | null>(null)
     const [isDraggingComponent, setIsDraggingComponent] = useState(false)
     const [viewport, setViewport] = useState<Viewport>({ x: 180, y: 90, scale: 0.86 })
+    const [moduleLibrary, setModuleLibrary] = useState<ModuleDefinitionData[]>(() => listModuleDefinitions())
+    const [selectedLibraryModuleId, setSelectedLibraryModuleId] = useState<string>("")
     const pendingPinId = pendingConnection?.type === "pin" ? pendingConnection.pinId : null
     const canDeleteSelection = !!selectedWireId || selectedIds.some((id) => canRemoveComponent(circuit, id))
     const canModularizeSelection = selectedIds.length > 0 && !selectedWireId
+    const canSaveModuleSelection = selectedIds.length === 1
+        && findComponentById(circuit, selectedIds[0]) instanceof Module
+    const canInsertLibraryModule = selectedLibraryModuleId.length > 0
+    const canEditLibraryModule = selectedLibraryModuleId.length > 0
 
     useEffect(() => {
         const canvas = canvasRef.current
@@ -97,6 +147,7 @@ export function App() {
 
     function rerenderCircuit() {
         syncDirectWires(circuit)
+        saveCircuitToLocalStorage(serializeModule(circuit))
         setRevision((current) => current + 1)
     }
 
@@ -149,6 +200,7 @@ export function App() {
             const text = await file.text()
             const data = JSON.parse(text) as ModuleDefinitionData
             const nextCircuit = deserializeModule(data)
+            saveCircuitToLocalStorage(serializeModule(nextCircuit))
             setCircuit(nextCircuit)
             setSelectedIds([])
             setSelectedWireId(null)
@@ -161,6 +213,134 @@ export function App() {
             const message = error instanceof Error ? error.message : "Unknown import error"
             window.alert(`Could not import circuit JSON: ${message}`)
         }
+    }
+
+    function exportSelectedLibraryModule() {
+        const module = loadModuleDefinition(selectedLibraryModuleId)
+        if (!module) {
+            return
+        }
+
+        const blob = new Blob([JSON.stringify(module, null, 2)], { type: "application/json" })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = `${module.name.toLowerCase().replaceAll(/\s+/g, "-")}.assemblying-module.json`
+        link.click()
+        URL.revokeObjectURL(url)
+    }
+
+    async function importLibraryModuleFile(file: File) {
+        try {
+            const text = await file.text()
+            const data = normalizeModuleDefinitionForLibrary(JSON.parse(text) as ModuleDefinitionData)
+            deserializeModule(data)
+            saveModuleDefinition(data)
+            refreshModuleLibrary(data.id)
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Unknown import error"
+            window.alert(`Could not import module JSON: ${message}`)
+        }
+    }
+
+    function createNewCircuit() {
+        const nextCircuit = createSampleCircuit()
+        clearCircuitLocalStorage()
+        setCircuit(nextCircuit)
+        setSelectedIds([])
+        setSelectedWireId(null)
+        setPendingConnection(null)
+        setPointerWorld(null)
+        dragRef.current = null
+        setIsDraggingComponent(false)
+        setViewport({ x: 180, y: 90, scale: 0.86 })
+        setRevision((current) => current + 1)
+    }
+
+    function saveSelectedModuleToLibrary() {
+        if (selectedIds.length !== 1) {
+            return
+        }
+
+        const component = findComponentById(circuit, selectedIds[0])
+        if (!(component instanceof Module)) {
+            return
+        }
+
+        const data = normalizeModuleDefinitionForLibrary(serializeModule(component))
+        saveModuleDefinition(data)
+        refreshModuleLibrary(data.id)
+    }
+
+    function insertLibraryModule() {
+        const definition = loadModuleDefinition(selectedLibraryModuleId)
+        const canvas = canvasRef.current
+        if (!definition || !canvas) {
+            return
+        }
+
+        const selectedComponent = selectedIds.length === 1
+            ? findComponentById(circuit, selectedIds[0])
+            : null
+        const rect = canvas.getBoundingClientRect()
+        const center = screenToWorld(rect.width / 2, rect.height / 2, viewport)
+        const fallback = {
+            x: center.x - definition.bounds.width / 2,
+            y: center.y - definition.bounds.height / 2,
+        }
+        const insertionPoint = selectedComponent instanceof Module
+            ? {
+                x: selectedComponent.x + selectedComponent.width + 72,
+                y: selectedComponent.y,
+            }
+            : circuitInsertionPoint(circuit, fallback)
+        const x = insertionPoint.x
+        const y = insertionPoint.y
+        const module = instantiateModuleDefinition(definition, {
+            idPrefix: `module-copy-${Date.now()}:`,
+            x,
+            y,
+        })
+
+        addModuleTo(circuit, module)
+        setSelectedIds([module.id])
+        setSelectedWireId(null)
+        setPendingConnection(null)
+        rerenderCircuit()
+    }
+
+    function refreshModuleLibrary(nextSelectedId = selectedLibraryModuleId) {
+        const nextLibrary = listModuleDefinitions()
+        setModuleLibrary(nextLibrary)
+        setSelectedLibraryModuleId(
+            nextLibrary.some((module) => module.id === nextSelectedId)
+                ? nextSelectedId
+                : "",
+        )
+    }
+
+    function deleteSelectedLibraryModule() {
+        if (!selectedLibraryModuleId) {
+            return
+        }
+
+        deleteModuleDefinition(selectedLibraryModuleId)
+        refreshModuleLibrary("")
+    }
+
+    function renameSelectedLibraryModule() {
+        const module = moduleLibrary.find((candidate) => candidate.id === selectedLibraryModuleId)
+        if (!module) {
+            return
+        }
+
+        const name = window.prompt("Module name", module.name)?.trim()
+        if (!name) {
+            return
+        }
+
+        renameModuleDefinition(module.id, name)
+        refreshModuleLibrary(module.id)
     }
 
     useEffect(() => {
@@ -273,6 +453,19 @@ export function App() {
                 event.currentTarget.value = ""
                 if (file) {
                     void importCircuitFile(file)
+                }
+            }}
+        />
+        <input
+            ref={importLibraryModuleInputRef}
+            type="file"
+            accept="application/json,.json,.assemblying-module.json"
+            style={{ display: "none" }}
+            onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ""
+                if (file) {
+                    void importLibraryModuleFile(file)
                 }
             }}
         />
@@ -436,6 +629,19 @@ export function App() {
             onModularizeSelected={modularizeSelected}
             onExportCircuit={exportCircuit}
             onImportCircuit={() => importInputRef.current?.click()}
+            onCreateNewCircuit={createNewCircuit}
+            moduleLibrary={moduleLibrary}
+            selectedLibraryModuleId={selectedLibraryModuleId}
+            canSaveModuleSelection={canSaveModuleSelection}
+            canInsertLibraryModule={canInsertLibraryModule}
+            canEditLibraryModule={canEditLibraryModule}
+            onSaveSelectedModule={saveSelectedModuleToLibrary}
+            onSelectLibraryModule={setSelectedLibraryModuleId}
+            onInsertLibraryModule={insertLibraryModule}
+            onRenameLibraryModule={renameSelectedLibraryModule}
+            onDeleteLibraryModule={deleteSelectedLibraryModule}
+            onExportLibraryModule={exportSelectedLibraryModule}
+            onImportLibraryModule={() => importLibraryModuleInputRef.current?.click()}
             onZoomOut={() => setViewport((current) => ({ ...current, scale: clamp(current.scale / 1.25, minScale, maxScale) }))}
             onZoomIn={() => setViewport((current) => ({ ...current, scale: clamp(current.scale * 1.25, minScale, maxScale) }))}
             onResetView={() => setViewport({ x: 180, y: 90, scale: 0.86 })}

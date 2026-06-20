@@ -56,7 +56,7 @@ function serializeWire(wire: Wire, includedWireIds: ReadonlySet<string>): WireDa
         id: wire.id,
         label: wire.label,
         points: wire.points.map((point) => ({ x: point.x, y: point.y })),
-        fixedSignal: wire.fixedSignal,
+        fixedSignal: wire.localFixedSignal,
         connectionPinIds: wire.connections.map((pin) => pin.id),
         connectedWireIds: wire.connectedWires
             .filter((connectedWire) => includedWireIds.has(connectedWire.id))

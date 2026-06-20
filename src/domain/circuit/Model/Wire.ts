@@ -44,11 +44,19 @@ export class Wire {
         return this.root()._fixedSignal
     }
 
+    get localFixedSignal(): Signal {
+        return this._fixedSignal
+    }
+
     set fixedSignal(value: Signal) {
         this.root()._fixedSignal = value
     }
 
     connect(pin: Pin) {
+        if (pin.wire && pin.wire !== this) {
+            this.connectWire(pin.wire)
+        }
+
         if (!this.connections.includes(pin)) {
             this.connections.push(pin)
         }
