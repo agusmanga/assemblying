@@ -38,7 +38,7 @@ export class Module extends Component {
     pins: Pin[] = []
     children: Component[] = []
     wires: Wire[] = []
-    detailScale = 0.72
+    detailScale = 0.7
 
     constructor(input: {
         id: string

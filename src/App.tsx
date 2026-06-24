@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Module } from "./domain/circuit/Model/Module"
-import type { PowerSourceKind } from "./domain/circuit/Model/PowerSource"
-import type { TransistorKind } from "./domain/circuit/Model/Transistor"
 import {
     instantiateModuleDefinition,
     normalizeModuleDefinitionForLibrary,
@@ -22,12 +20,23 @@ import {
     saveModuleDefinition,
 } from "./domain/circuit/storage/moduleLibraryStorage"
 import { drawComponent, drawGrid, drawWire, setupCanvas, strokePath } from "./ui/canvas/renderer"
-import { maxScale, minScale } from "./ui/constants"
+import {
+    maxScale,
+    minScale,
+    moduleNestedRevealStep,
+    moduleRevealAdvance,
+    moduleRevealRange,
+} from "./ui/constants"
 import { LibrarySidebar } from "./ui/components/LibrarySidebar"
+import { ModuleBreadcrumb } from "./ui/components/ModuleBreadcrumb"
+import { OnboardingOverlay } from "./ui/components/OnboardingOverlay"
 import { Toolbar } from "./ui/components/Toolbar"
 import {
+    addClockSourceTo,
+    addLedTo,
     addModuleTo,
     addInputSourceTo,
+    addOutputProbeTo,
     addPowerSourceTo,
     addTransistorTo,
     canRemoveComponent,
@@ -36,17 +45,19 @@ import {
     demodularizeModule,
     findComponentAt,
     findComponentById,
+    findModuleResizeHandleAt,
     findPinAt,
     findWireAt,
     pendingConnectionPoint,
     removeComponent,
     removeWire,
+    resizeModule,
     syncDirectWires,
     toggleInputAt,
 } from "./ui/circuit/editor"
 import { clamp, screenToWorld } from "./ui/geometry"
 import { appStyle } from "./ui/styles"
-import type { DragState, PendingConnection, Point, Viewport } from "./ui/types"
+import type { DragState, PendingConnection, Point, ToolComponentKind, Viewport } from "./ui/types"
 
 function createInitialCircuit() {
     try {
@@ -56,6 +67,16 @@ function createInitialCircuit() {
         console.error("Could not load saved circuit", error)
         clearCircuitLocalStorage()
         return createSampleCircuit()
+    }
+}
+
+const onboardingStorageKey = "assemblying:onboarding:v1"
+
+function shouldShowOnboarding() {
+    try {
+        return window.localStorage.getItem(onboardingStorageKey) !== "done"
+    } catch {
+        return true
     }
 }
 
@@ -73,6 +94,25 @@ function circuitInsertionPoint(circuit: Module, fallback: Point): Point {
     }
 }
 
+function modulePathTo(root: Module, moduleId: string | null): Module[] | null {
+    if (!moduleId || root.id === moduleId) {
+        return [root]
+    }
+
+    for (const child of root.children) {
+        if (!(child instanceof Module)) {
+            continue
+        }
+
+        const nestedPath = modulePathTo(child, moduleId)
+        if (nestedPath) {
+            return [root, ...nestedPath]
+        }
+    }
+
+    return null
+}
+
 export function App() {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const dragRef = useRef<DragState | null>(null)
@@ -81,6 +121,7 @@ export function App() {
     const [circuit, setCircuit] = useState(createInitialCircuit)
     const [revision, setRevision] = useState(0)
     const [selectedIds, setSelectedIds] = useState<string[]>([])
+    const [transparentIds, setTransparentIds] = useState<string[]>([])
     const [selectedWireId, setSelectedWireId] = useState<string | null>(null)
     const [pendingConnection, setPendingConnection] = useState<PendingConnection | null>(null)
     const [pointerWorld, setPointerWorld] = useState<Point | null>(null)
@@ -89,7 +130,11 @@ export function App() {
     const [moduleLibrary, setModuleLibrary] = useState<ModuleDefinitionData[]>(() => listModuleDefinitions())
     const [selectedLibraryModuleId, setSelectedLibraryModuleId] = useState<string>("")
     const [isLibraryVisible, setIsLibraryVisible] = useState(true)
+    const [activeModuleId, setActiveModuleId] = useState<string | null>(null)
+    const [isOnboardingOpen, setIsOnboardingOpen] = useState(shouldShowOnboarding)
+    const [activeTool, setActiveTool] = useState<ToolComponentKind | null>(null)
     const pendingPinId = pendingConnection?.type === "pin" ? pendingConnection.pinId : null
+    const activeModulePath = modulePathTo(circuit, activeModuleId) ?? [circuit]
     const canDeleteSelection = !!selectedWireId || selectedIds.some((id) => canRemoveComponent(circuit, id))
     const canModularizeSelection = selectedIds.length > 0 && !selectedWireId
     const canSaveModuleSelection = selectedIds.length === 1
@@ -99,13 +144,15 @@ export function App() {
     const canEditLibraryModule = selectedLibraryModuleId.length > 0
 
     useEffect(() => {
-        const canvas = canvasRef.current
-        if (!canvas) {
+        const canvasElement = canvasRef.current
+        if (!canvasElement) {
             return
         }
 
-        const frame = window.requestAnimationFrame(() => {
-            const setup = setupCanvas(canvas)
+        let frame = 0
+
+        const drawFrame = (animationTime: number) => {
+            const setup = setupCanvas(canvasElement)
             if (!setup) {
                 return
             }
@@ -117,11 +164,11 @@ export function App() {
             setup.context.scale(viewport.scale, viewport.scale)
 
             for (const wire of circuit.wires) {
-                drawWire(setup.context, wire, viewport.scale, selectedWireId === wire.id)
+                drawWire(setup.context, wire, viewport.scale, selectedWireId === wire.id, animationTime)
             }
 
             for (const child of circuit.children) {
-                drawComponent(setup.context, child, viewport.scale, selectedIds, selectedWireId, pendingPinId)
+                drawComponent(setup.context, child, viewport.scale, selectedIds, transparentIds, selectedWireId, pendingPinId, 0, animationTime)
             }
 
             if (pendingConnection && pointerWorld) {
@@ -137,10 +184,12 @@ export function App() {
             }
 
             setup.context.restore()
-        })
+            frame = window.requestAnimationFrame(drawFrame)
+        }
 
+        frame = window.requestAnimationFrame(drawFrame)
         return () => window.cancelAnimationFrame(frame)
-    }, [circuit, pendingConnection, pendingPinId, pointerWorld, revision, selectedIds, selectedWireId, viewport])
+    }, [circuit, pendingConnection, pendingPinId, pointerWorld, revision, selectedIds, selectedWireId, transparentIds, viewport])
 
     useEffect(() => {
         const handleResize = () => setViewport((current) => ({ ...current }))
@@ -165,12 +214,17 @@ export function App() {
         }
 
         if (selectedIds.length > 0) {
+            const deletesActiveModule = activeModuleId ? selectedIds.includes(activeModuleId) : false
             let deleted = false
             for (const id of selectedIds) {
                 deleted = removeComponent(circuit, id) || deleted
             }
             if (deleted) {
+                if (deletesActiveModule) {
+                    setActiveModuleId(null)
+                }
                 setSelectedIds([])
+                setTransparentIds((current) => current.filter((id) => !selectedIds.includes(id)))
                 setPendingConnection(null)
                 rerenderCircuit()
             }
@@ -194,6 +248,9 @@ export function App() {
 
         const promotedChildren = demodularizeModule(circuit, selectedIds[0])
         if (promotedChildren) {
+            if (activeModuleId === selectedIds[0]) {
+                setActiveModuleId(null)
+            }
             setSelectedIds(promotedChildren.map((component) => component.id))
             setSelectedWireId(null)
             setPendingConnection(null)
@@ -220,9 +277,11 @@ export function App() {
             saveCircuitToLocalStorage(serializeModule(nextCircuit))
             setCircuit(nextCircuit)
             setSelectedIds([])
+            setTransparentIds([])
             setSelectedWireId(null)
             setPendingConnection(null)
             setPointerWorld(null)
+            setActiveModuleId(null)
             dragRef.current = null
             setIsDraggingComponent(false)
             setRevision((current) => current + 1)
@@ -265,9 +324,11 @@ export function App() {
         clearCircuitLocalStorage()
         setCircuit(nextCircuit)
         setSelectedIds([])
+        setTransparentIds([])
         setSelectedWireId(null)
         setPendingConnection(null)
         setPointerWorld(null)
+        setActiveModuleId(null)
         dragRef.current = null
         setIsDraggingComponent(false)
         setViewport({ x: 180, y: 90, scale: 0.86 })
@@ -360,8 +421,55 @@ export function App() {
         refreshModuleLibrary(module.id)
     }
 
+    function focusModule(module: Module) {
+        setActiveModuleId(module === circuit ? null : module.id)
+        setSelectedIds(module === circuit ? [] : [module.id])
+        setSelectedWireId(null)
+        setPendingConnection(null)
+
+        if (module === circuit) {
+            return
+        }
+
+        const canvas = canvasRef.current
+        const path = modulePathTo(circuit, module.id)
+        if (!canvas || !path) {
+            return
+        }
+
+        const rect = canvas.getBoundingClientRect()
+        const depth = Math.max(0, path.length - 2)
+        const detailScale = module.detailScale <= 0
+            ? viewport.scale
+            : module.detailScale - moduleRevealAdvance + depth * moduleNestedRevealStep + moduleRevealRange / 2 + 0.08
+        const scale = clamp(Math.max(viewport.scale, detailScale), minScale, maxScale)
+        const centerX = module.x + module.width / 2
+        const centerY = module.y + module.height / 2
+
+        setViewport({
+            scale,
+            x: rect.width / 2 - centerX * scale,
+            y: rect.height / 2 - centerY * scale,
+        })
+    }
+
+    function closeOnboarding() {
+        try {
+            window.localStorage.setItem(onboardingStorageKey, "done")
+        } catch {
+            // Ignore storage failures; the overlay can still close for this session.
+        }
+        setIsOnboardingOpen(false)
+    }
+
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                setActiveTool(null)
+                setPendingConnection(null)
+                return
+            }
+
             if (event.key !== "Delete" && event.key !== "Backspace") {
                 return
             }
@@ -414,50 +522,67 @@ export function App() {
         })
     }
 
-    function createTransistor(kind: TransistorKind) {
-        const canvas = canvasRef.current
-        if (!canvas) {
+    const addToolComponent = useCallback((kind: ToolComponentKind, point: Point) => {
+        const component = (() => {
+            switch (kind) {
+                case "nmos":
+                    return addTransistorTo(circuit, "nmos", point)
+                case "pmos":
+                    return addTransistorTo(circuit, "pmos", point)
+                case "vdd":
+                    return addPowerSourceTo(circuit, "vdd", point)
+                case "gnd":
+                    return addPowerSourceTo(circuit, "gnd", point)
+                case "input":
+                    return addInputSourceTo(circuit, point)
+                case "output":
+                    return addOutputProbeTo(circuit, point)
+                case "led":
+                    return addLedTo(circuit, point)
+                case "clock":
+                    return addClockSourceTo(circuit, point)
+            }
+        })()
+
+        setSelectedIds([component.id])
+        setSelectedWireId(null)
+        setPendingConnection(null)
+        setActiveTool(null)
+        syncDirectWires(circuit)
+        saveCircuitToLocalStorage(serializeModule(circuit))
+        setRevision((current) => current + 1)
+    }, [circuit])
+
+    useEffect(() => {
+        if (!activeTool) {
             return
         }
 
-        const rect = canvas.getBoundingClientRect()
-        const center = screenToWorld(rect.width / 2, rect.height / 2, viewport)
-        const transistor = addTransistorTo(circuit, kind, center)
-        setSelectedIds([transistor.id])
-        setSelectedWireId(null)
-        setPendingConnection(null)
-        rerenderCircuit()
-    }
+        const handlePointerUp = (event: PointerEvent) => {
+            const canvas = canvasRef.current
+            if (!canvas) {
+                setActiveTool(null)
+                return
+            }
 
-    function createPowerSource(kind: PowerSourceKind) {
-        const canvas = canvasRef.current
-        if (!canvas) {
-            return
+            const rect = canvas.getBoundingClientRect()
+            const isOverCanvas = event.clientX >= rect.left
+                && event.clientX <= rect.right
+                && event.clientY >= rect.top
+                && event.clientY <= rect.bottom
+
+            if (!isOverCanvas) {
+                setActiveTool(null)
+                return
+            }
+
+            const point = screenToWorld(event.clientX - rect.left, event.clientY - rect.top, viewport)
+            addToolComponent(activeTool, point)
         }
 
-        const rect = canvas.getBoundingClientRect()
-        const center = screenToWorld(rect.width / 2, rect.height / 2, viewport)
-        const source = addPowerSourceTo(circuit, kind, center)
-        setSelectedIds([source.id])
-        setSelectedWireId(null)
-        setPendingConnection(null)
-        rerenderCircuit()
-    }
-
-    function createInputSource() {
-        const canvas = canvasRef.current
-        if (!canvas) {
-            return
-        }
-
-        const rect = canvas.getBoundingClientRect()
-        const center = screenToWorld(rect.width / 2, rect.height / 2, viewport)
-        const input = addInputSourceTo(circuit, center)
-        setSelectedIds([input.id])
-        setSelectedWireId(null)
-        setPendingConnection(null)
-        rerenderCircuit()
-    }
+        window.addEventListener("pointerup", handlePointerUp)
+        return () => window.removeEventListener("pointerup", handlePointerUp)
+    }, [activeTool, addToolComponent, viewport])
 
     return <main style={appStyle}>
         <input
@@ -492,7 +617,7 @@ export function App() {
                 width: "100%",
                 height: "100%",
                 display: "block",
-                cursor: isDraggingComponent ? "grabbing" : "grab",
+                cursor: activeTool ? "copy" : isDraggingComponent ? "grabbing" : "grab",
                 touchAction: "none",
             }}
             onDoubleClick={(event) => {
@@ -507,12 +632,51 @@ export function App() {
                     return
                 }
 
+                const component = findComponentAt(circuit, world, viewport.scale)
+                if (component instanceof Module) {
+                    setTransparentIds((current) => (
+                        current.includes(component.id)
+                            ? current.filter((id) => id !== component.id)
+                            : [...current, component.id]
+                    ))
+                    setSelectedIds([component.id])
+                    setSelectedWireId(null)
+                    setPendingConnection(null)
+                    return
+                }
+
+                if (component) {
+                    setTransparentIds((current) => (
+                        current.includes(component.id)
+                            ? current.filter((id) => id !== component.id)
+                            : [...current, component.id]
+                    ))
+                    setSelectedIds([component.id])
+                    setSelectedWireId(null)
+                    setPendingConnection(null)
+                    return
+                }
+
                 zoomAt(event.clientX, event.clientY, viewport.scale * 1.7)
             }}
             onPointerDown={(event) => {
                 event.currentTarget.setPointerCapture(event.pointerId)
                 const world = worldFromEvent(event)
                 setPointerWorld(world)
+
+                const resizeModuleHit = findModuleResizeHandleAt(circuit, world, viewport.scale)
+                if (resizeModuleHit && selectedIds.includes(resizeModuleHit.id)) {
+                    setSelectedIds([resizeModuleHit.id])
+                    setSelectedWireId(null)
+                    setPendingConnection(null)
+                    dragRef.current = {
+                        type: "module-resize",
+                        pointerId: event.pointerId,
+                        moduleId: resizeModuleHit.id,
+                    }
+                    setIsDraggingComponent(true)
+                    return
+                }
 
                 const pinHit = findPinAt(circuit, world, viewport.scale)
                 if (pinHit) {
@@ -602,6 +766,15 @@ export function App() {
                     return
                 }
 
+                if (drag.type === "module-resize") {
+                    const module = findComponentById(circuit, drag.moduleId)
+                    if (module instanceof Module) {
+                        resizeModule(module, world)
+                        rerenderCircuit()
+                    }
+                    return
+                }
+
                 const component = findComponentById(circuit, drag.componentId)
                 if (!component) {
                     return
@@ -640,9 +813,8 @@ export function App() {
             canDeleteSelection={canDeleteSelection}
             canModularizeSelection={canModularizeSelection}
             canDemodularizeSelection={canDemodularizeSelection}
-            onCreateTransistor={createTransistor}
-            onCreatePowerSource={createPowerSource}
-            onCreateInputSource={createInputSource}
+            activeTool={activeTool}
+            onPickTool={setActiveTool}
             onDeleteSelected={deleteSelected}
             onModularizeSelected={modularizeSelected}
             onDemodularizeSelected={demodularizeSelected}
@@ -652,6 +824,12 @@ export function App() {
             onZoomOut={() => setViewport((current) => ({ ...current, scale: clamp(current.scale / 1.25, minScale, maxScale) }))}
             onZoomIn={() => setViewport((current) => ({ ...current, scale: clamp(current.scale * 1.25, minScale, maxScale) }))}
             onResetView={() => setViewport({ x: 180, y: 90, scale: 0.86 })}
+            onShowOnboarding={() => setIsOnboardingOpen(true)}
+        />
+
+        <ModuleBreadcrumb
+            path={activeModulePath}
+            onSelectModule={focusModule}
         />
 
         <LibrarySidebar
@@ -670,5 +848,7 @@ export function App() {
             onImportModule={() => importLibraryModuleInputRef.current?.click()}
             onToggle={() => setIsLibraryVisible((visible) => !visible)}
         />
+
+        {isOnboardingOpen && <OnboardingOverlay onClose={closeOnboarding} />}
     </main>
 }

@@ -1,11 +1,23 @@
 import { Component } from "../../domain/circuit/Model/Component"
+import { ClockSource } from "../../domain/circuit/Model/ClockSource"
 import { InputSource } from "../../domain/circuit/Model/InputSource"
+import { Led } from "../../domain/circuit/Model/Led"
 import { Module } from "../../domain/circuit/Model/Module"
+import { OutputProbe } from "../../domain/circuit/Model/OutputProbe"
 import { Pin } from "../../domain/circuit/Model/Pin"
 import { PowerSource, type PowerSourceKind } from "../../domain/circuit/Model/PowerSource"
 import { Transistor, type TransistorKind } from "../../domain/circuit/Model/Transistor"
 import { Wire } from "../../domain/circuit/Model/Wire"
-import { gridMajor, moduleNestedRevealStep, moduleRevealRange, pinHitRadius, wireHitRadius } from "../constants"
+import {
+    gridMajor,
+    moduleNestedRevealStep,
+    moduleMinSize,
+    moduleRevealAdvance,
+    moduleRevealRange,
+    moduleResizeHandleSize,
+    pinHitRadius,
+    wireHitRadius,
+} from "../constants"
 import { clamp, closestPointOnSegment, distance, snap } from "../geometry"
 import type { PendingConnection, PinHit, Point, WireHit } from "../types"
 
@@ -50,14 +62,202 @@ function pointInComponent(point: Point, component: Component) {
         && point.y <= component.y + component.height
 }
 
-function moduleDetailRevealStart(module: Module, depth: number) {
+export function findModuleResizeHandleAt(module: Module, point: Point, scale: number, depth = 0): Module | null {
+    for (const child of [...module.children].reverse()) {
+        if (child instanceof Module && canReachModuleDetail(child, scale, depth)) {
+            const nested = findModuleResizeHandleAt(child, point, scale, depth + 1)
+            if (nested) {
+                return nested
+            }
+        }
+
+        if (!(child instanceof Module)) {
+            continue
+        }
+
+        const size = moduleResizeHandleSize / scale
+        const left = child.x + child.width - size / 2
+        const top = child.y + child.height - size / 2
+        if (
+            point.x >= left
+            && point.x <= left + size
+            && point.y >= top
+            && point.y <= top + size
+        ) {
+            return child
+        }
+    }
+
+    return null
+}
+
+function pinEdgeRatio(pin: Pin, module: Module) {
+    const distances = {
+        left: Math.abs(pin.x - module.x),
+        right: Math.abs(pin.x - (module.x + module.width)),
+        top: Math.abs(pin.y - module.y),
+        bottom: Math.abs(pin.y - (module.y + module.height)),
+    }
+    const edge = Object.entries(distances).reduce((closest, current) => (
+        current[1] < closest[1] ? current : closest
+    ))[0]
+
+    return {
+        edge,
+        xRatio: module.width === 0 ? 0 : (pin.x - module.x) / module.width,
+        yRatio: module.height === 0 ? 0 : (pin.y - module.y) / module.height,
+    }
+}
+
+function scalePointFromOrigin(point: Point, origin: Point, scaleX: number, scaleY: number) {
+    point.x = origin.x + (point.x - origin.x) * scaleX
+    point.y = origin.y + (point.y - origin.y) * scaleY
+}
+
+function moveComponentTo(component: Component, point: Point) {
+    component.moveBy(point.x - component.x, point.y - component.y)
+}
+
+function restoreWirePointsConnectedToPins(
+    module: Module,
+    previousPins: Array<{ pin: Pin; x: number; y: number }>,
+    scaleX: number,
+    scaleY: number,
+) {
+    const pinPositions = previousPins.map(({ pin, x, y }) => ({
+        pin,
+        scaledX: module.x + (x - module.x) * scaleX,
+        scaledY: module.y + (y - module.y) * scaleY,
+    }))
+
+    for (const wire of collectWires(module)) {
+        for (const point of wire.points) {
+            const match = pinPositions.find(({ pin, scaledX, scaledY }) => (
+                wire.connections.includes(pin)
+                && Math.abs(point.x - scaledX) < 1
+                && Math.abs(point.y - scaledY) < 1
+            ))
+
+            if (match) {
+                point.x = match.pin.x
+                point.y = match.pin.y
+            }
+        }
+    }
+}
+
+function scaleComponentFromOrigin(component: Component, origin: Point, scaleX: number, scaleY: number) {
+    const position = {
+        x: origin.x + (component.x - origin.x) * scaleX,
+        y: origin.y + (component.y - origin.y) * scaleY,
+    }
+
+    if (!(component instanceof Module)) {
+        moveComponentTo(component, position)
+        return
+    }
+
+    component.x = position.x
+    component.y = position.y
+    component.width *= scaleX
+    component.height *= scaleY
+
+    for (const pin of component.pins) {
+        scalePointFromOrigin(pin, origin, scaleX, scaleY)
+    }
+
+    for (const wire of component.wires) {
+        for (const point of wire.points) {
+            scalePointFromOrigin(point, origin, scaleX, scaleY)
+        }
+    }
+
+    for (const child of component.children) {
+        scaleComponentFromOrigin(child, origin, scaleX, scaleY)
+    }
+}
+
+function minimumModuleSizeForChildren(module: Module) {
+    const padding = 24
+    let minimumScaleX = module.width === 0 ? 1 : moduleMinSize / module.width
+    let minimumScaleY = module.height === 0 ? 1 : moduleMinSize / module.height
+
+    for (const child of module.children) {
+        const offsetX = Math.max(0, child.x - module.x)
+        const offsetY = Math.max(0, child.y - module.y)
+        const availableWidth = module.width - offsetX
+        const availableHeight = module.height - offsetY
+
+        if (availableWidth > 0) {
+            minimumScaleX = Math.max(minimumScaleX, (child.width + padding) / availableWidth)
+        }
+
+        if (availableHeight > 0) {
+            minimumScaleY = Math.max(minimumScaleY, (child.height + padding) / availableHeight)
+        }
+
+        if (child instanceof Module) {
+            const childMinimum = minimumModuleSizeForChildren(child)
+            minimumScaleX = Math.max(minimumScaleX, childMinimum.width / child.width)
+            minimumScaleY = Math.max(minimumScaleY, childMinimum.height / child.height)
+        }
+    }
+
+    return {
+        width: module.width * minimumScaleX,
+        height: module.height * minimumScaleY,
+    }
+}
+
+export function resizeModule(module: Module, point: Point) {
+    const previousWidth = module.width
+    const previousHeight = module.height
+    const previousPinPositions = collectPins(module).map((pin) => ({
+        pin,
+        x: pin.x,
+        y: pin.y,
+    }))
+    const previousPins = module.pins.map((pin) => ({
+        pin,
+        ...pinEdgeRatio(pin, module),
+    }))
+    const minimumSize = minimumModuleSizeForChildren(module)
+    module.width = Math.max(minimumSize.width, snap(point.x - module.x))
+    module.height = Math.max(minimumSize.height, snap(point.y - module.y))
+    const scaleX = previousWidth === 0 ? 1 : module.width / previousWidth
+    const scaleY = previousHeight === 0 ? 1 : module.height / previousHeight
+
+    for (const wire of module.wires) {
+        for (const wirePoint of wire.points) {
+            scalePointFromOrigin(wirePoint, module, scaleX, scaleY)
+        }
+    }
+
+    for (const child of module.children) {
+        scaleComponentFromOrigin(child, module, scaleX, scaleY)
+    }
+
+    for (const { pin, edge, xRatio, yRatio } of previousPins) {
+        if (edge === "left" || edge === "right") {
+            pin.x = edge === "left" ? module.x : module.x + module.width
+            pin.y = module.y + module.height * yRatio
+        } else {
+            pin.x = module.x + module.width * xRatio
+            pin.y = edge === "top" ? module.y : module.y + module.height
+        }
+    }
+
+    restoreWirePointsConnectedToPins(module, previousPinPositions, scaleX, scaleY)
+}
+
+function moduleDetailInteractionStart(module: Module, depth: number) {
     return module.detailScale <= 0
         ? 0
-        : module.detailScale + depth * moduleNestedRevealStep - moduleRevealRange / 2
+        : module.detailScale - moduleRevealAdvance + depth * moduleNestedRevealStep + moduleRevealRange / 2
 }
 
 function canReachModuleDetail(module: Module, scale: number, depth: number) {
-    return scale >= moduleDetailRevealStart(module, depth)
+    return scale >= moduleDetailInteractionStart(module, depth)
 }
 
 export function findComponentAt(module: Module, point: Point, scale: number, depth = 0): Component | null {
@@ -87,6 +287,18 @@ function pinsForComponent(component: Component) {
     }
 
     if (component instanceof InputSource) {
+        return [component.output]
+    }
+
+    if (component instanceof OutputProbe) {
+        return [component.input]
+    }
+
+    if (component instanceof Led) {
+        return [component.input]
+    }
+
+    if (component instanceof ClockSource) {
         return [component.output]
     }
 
@@ -455,32 +667,137 @@ export function addInputSourceTo(module: Module, center: Point) {
     return input
 }
 
+export function addOutputProbeTo(module: Module, center: Point) {
+    const count = module.children.filter((child) => child instanceof OutputProbe).length + 1
+    const probe = new OutputProbe({
+        id: `output-${Date.now()}`,
+        name: `OUT${count}`,
+        x: snap(center.x - 48),
+        y: snap(center.y - 34),
+    })
+
+    module.addChild(probe)
+    return probe
+}
+
+export function addLedTo(module: Module, center: Point) {
+    const count = module.children.filter((child) => child instanceof Led).length + 1
+    const led = new Led({
+        id: `led-${Date.now()}`,
+        name: `LED${count}`,
+        x: snap(center.x - 42),
+        y: snap(center.y - 42),
+    })
+
+    module.addChild(led)
+    return led
+}
+
+export function addClockSourceTo(module: Module, center: Point) {
+    const count = module.children.filter((child) => child instanceof ClockSource).length + 1
+    const clock = new ClockSource({
+        id: `clock-${Date.now()}`,
+        name: `CLK${count}`,
+        x: snap(center.x - 52),
+        y: snap(center.y - 34),
+    })
+
+    module.addChild(clock)
+    return clock
+}
+
 export function addModuleTo(module: Module, child: Module) {
     module.addChild(child)
     return child
 }
 
-function modulePinPosition(module: Module, target: Point, index: number, total: number) {
+function pointInModuleBounds(point: Point, module: Module) {
+    return point.x >= module.x
+        && point.x <= module.x + module.width
+        && point.y >= module.y
+        && point.y <= module.y + module.height
+}
+
+function closestPointOnModuleBounds(module: Module, target: Point): Point {
     const leftDistance = Math.abs(target.x - module.x)
     const rightDistance = Math.abs(target.x - (module.x + module.width))
     const topDistance = Math.abs(target.y - module.y)
     const bottomDistance = Math.abs(target.y - (module.y + module.height))
     const closest = Math.min(leftDistance, rightDistance, topDistance, bottomDistance)
-    const spacing = module.height / (total + 1)
 
     if (closest === leftDistance) {
-        return { x: module.x, y: module.y + spacing * (index + 1) }
+        return { x: module.x, y: clamp(target.y, module.y, module.y + module.height) }
     }
 
     if (closest === rightDistance) {
-        return { x: module.x + module.width, y: module.y + spacing * (index + 1) }
+        return { x: module.x + module.width, y: clamp(target.y, module.y, module.y + module.height) }
     }
 
     if (closest === topDistance) {
-        return { x: clamp(target.x, module.x + 28, module.x + module.width - 28), y: module.y }
+        return { x: clamp(target.x, module.x, module.x + module.width), y: module.y }
     }
 
-    return { x: clamp(target.x, module.x + 28, module.x + module.width - 28), y: module.y + module.height }
+    return { x: clamp(target.x, module.x, module.x + module.width), y: module.y + module.height }
+}
+
+function segmentModuleBoundaryIntersections(module: Module, a: Point, b: Point): Point[] {
+    const intersections: Point[] = []
+    const dx = b.x - a.x
+    const dy = b.y - a.y
+    const add = (t: number) => {
+        if (t < 0 || t > 1) {
+            return
+        }
+
+        const point = {
+            x: a.x + dx * t,
+            y: a.y + dy * t,
+        }
+
+        if (
+            point.x >= module.x - 0.001
+            && point.x <= module.x + module.width + 0.001
+            && point.y >= module.y - 0.001
+            && point.y <= module.y + module.height + 0.001
+            && !intersections.some((candidate) => distance(candidate, point) < 0.001)
+        ) {
+            intersections.push(point)
+        }
+    }
+
+    if (dx !== 0) {
+        add((module.x - a.x) / dx)
+        add((module.x + module.width - a.x) / dx)
+    }
+
+    if (dy !== 0) {
+        add((module.y - a.y) / dy)
+        add((module.y + module.height - a.y) / dy)
+    }
+
+    return intersections
+}
+
+function modulePinPositionFromWire(module: Module, wire: Wire, internalPins: Pin[]): Point {
+    const internalCenter = {
+        x: internalPins.reduce((sum, pin) => sum + pin.x, 0) / internalPins.length,
+        y: internalPins.reduce((sum, pin) => sum + pin.y, 0) / internalPins.length,
+    }
+    const candidates: Point[] = []
+
+    for (let index = 0; index < wire.points.length - 1; index += 1) {
+        const a = wire.points[index]
+        const b = wire.points[index + 1]
+        if (pointInModuleBounds(a, module) === pointInModuleBounds(b, module)) {
+            continue
+        }
+
+        candidates.push(...segmentModuleBoundaryIntersections(module, a, b))
+    }
+
+    return candidates.toSorted((a, b) => (
+        distance(a, internalCenter) - distance(b, internalCenter)
+    ))[0] ?? closestPointOnModuleBounds(module, internalCenter)
 }
 
 function roleForBoundaryPins(pins: Pin[]) {
@@ -549,7 +866,7 @@ export function createModuleFromSelection(root: Module, componentIds: readonly s
         height: Math.max(gridMajor, snap(maxY - minY + padding * 2)),
         children: components,
         wires: moduleWires,
-        detailScale: 0.85,
+        detailScale: 0.7,
     })
 
     for (const [index, boundary] of boundaryWires.entries()) {
@@ -557,7 +874,7 @@ export function createModuleFromSelection(root: Module, componentIds: readonly s
             x: boundary.pins.reduce((sum, pin) => sum + pin.x, 0) / boundary.pins.length,
             y: boundary.pins.reduce((sum, pin) => sum + pin.y, 0) / boundary.pins.length,
         }
-        const position = modulePinPosition(module, center, index, boundaryWires.length)
+        const position = modulePinPositionFromWire(module, boundary.wire, boundary.pins)
         const modulePin = new Pin({
             id: `${module.id}:port-${index + 1}`,
             label: boundary.pins[0].label,

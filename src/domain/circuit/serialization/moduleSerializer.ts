@@ -1,17 +1,23 @@
 import { Component } from "../Model/Component"
+import { ClockSource } from "../Model/ClockSource"
 import { InputSource } from "../Model/InputSource"
+import { Led } from "../Model/Led"
 import { Module } from "../Model/Module"
+import { OutputProbe } from "../Model/OutputProbe"
 import { Pin } from "../Model/Pin"
 import { PowerSource } from "../Model/PowerSource"
 import { Transistor } from "../Model/Transistor"
 import { Wire } from "../Model/Wire"
 import {
     circuitSchemaVersion,
+    type ClockSourceData,
     type ComponentData,
     type EmbeddedModuleData,
     type InputSourceData,
+    type LedData,
     type ModuleDefinitionData,
     type ModuleInstanceData,
+    type OutputProbeData,
     type PinData,
     type PowerSourceData,
     type TransistorData,
@@ -98,6 +104,37 @@ function serializeComponent(component: Component, includedWireIds: ReadonlySet<s
         }
     }
 
+    if (component instanceof OutputProbe) {
+        return {
+            type: "outputProbe",
+            id: component.id,
+            name: component.name,
+            x: component.x,
+            y: component.y,
+        }
+    }
+
+    if (component instanceof Led) {
+        return {
+            type: "led",
+            id: component.id,
+            name: component.name,
+            x: component.x,
+            y: component.y,
+        }
+    }
+
+    if (component instanceof ClockSource) {
+        return {
+            type: "clockSource",
+            id: component.id,
+            name: component.name,
+            x: component.x,
+            y: component.y,
+            periodMs: component.periodMs,
+        }
+    }
+
     if (component instanceof Module) {
         return serializeEmbeddedModule(component, includedWireIds)
     }
@@ -162,6 +199,34 @@ function deserializeInputSource(data: InputSourceData): InputSource {
     })
 }
 
+function deserializeOutputProbe(data: OutputProbeData): OutputProbe {
+    return new OutputProbe({
+        id: data.id,
+        name: data.name,
+        x: data.x,
+        y: data.y,
+    })
+}
+
+function deserializeLed(data: LedData): Led {
+    return new Led({
+        id: data.id,
+        name: data.name,
+        x: data.x,
+        y: data.y,
+    })
+}
+
+function deserializeClockSource(data: ClockSourceData): ClockSource {
+    return new ClockSource({
+        id: data.id,
+        name: data.name,
+        x: data.x,
+        y: data.y,
+        periodMs: data.periodMs,
+    })
+}
+
 function deserializeModuleInstance(data: ModuleInstanceData): Module {
     return new Module({
         id: data.id,
@@ -187,6 +252,12 @@ function deserializeComponent(
             return deserializePowerSource(data)
         case "inputSource":
             return deserializeInputSource(data)
+        case "outputProbe":
+            return deserializeOutputProbe(data)
+        case "led":
+            return deserializeLed(data)
+        case "clockSource":
+            return deserializeClockSource(data)
         case "moduleInstance":
             return deserializeModuleInstance(data)
         case "module":
@@ -204,6 +275,18 @@ function pinsForComponent(component: Component): Pin[] {
     }
 
     if (component instanceof InputSource) {
+        return [component.output]
+    }
+
+    if (component instanceof OutputProbe) {
+        return [component.input]
+    }
+
+    if (component instanceof Led) {
+        return [component.input]
+    }
+
+    if (component instanceof ClockSource) {
         return [component.output]
     }
 

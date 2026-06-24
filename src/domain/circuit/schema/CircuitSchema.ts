@@ -60,6 +60,31 @@ export type InputSourceData = {
     y: number
 }
 
+export type OutputProbeData = {
+    type: "outputProbe"
+    id: string
+    name: string
+    x: number
+    y: number
+}
+
+export type LedData = {
+    type: "led"
+    id: string
+    name: string
+    x: number
+    y: number
+}
+
+export type ClockSourceData = {
+    type: "clockSource"
+    id: string
+    name: string
+    x: number
+    y: number
+    periodMs: number
+}
+
 export type ModuleInstanceData = {
     type: "moduleInstance"
     id: string
@@ -92,6 +117,9 @@ export type ComponentData =
     | TransistorData
     | PowerSourceData
     | InputSourceData
+    | OutputProbeData
+    | LedData
+    | ClockSourceData
     | ModuleInstanceData
     | EmbeddedModuleData
 

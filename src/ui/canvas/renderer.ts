@@ -1,11 +1,21 @@
 import { Component } from "../../domain/circuit/Model/Component"
+import { ClockSource } from "../../domain/circuit/Model/ClockSource"
 import { InputSource } from "../../domain/circuit/Model/InputSource"
+import { Led } from "../../domain/circuit/Model/Led"
 import { Module } from "../../domain/circuit/Model/Module"
+import { OutputProbe } from "../../domain/circuit/Model/OutputProbe"
 import type { Pin } from "../../domain/circuit/Model/Pin"
 import { PowerSource } from "../../domain/circuit/Model/PowerSource"
 import { Transistor } from "../../domain/circuit/Model/Transistor"
 import type { Wire } from "../../domain/circuit/Model/Wire"
-import { gridMajor, gridMinor, moduleNestedRevealStep, moduleRevealRange } from "../constants"
+import {
+    gridMajor,
+    gridMinor,
+    moduleNestedRevealStep,
+    moduleRevealAdvance,
+    moduleRevealRange,
+    moduleResizeHandleSize,
+} from "../constants"
 import { screenToWorld } from "../geometry"
 import type { Point, Viewport } from "../types"
 
@@ -15,7 +25,7 @@ function smoothstep(edge0: number, edge1: number, value: number) {
 }
 
 function moduleRevealScale(module: Module, depth: number) {
-    return module.detailScale + depth * moduleNestedRevealStep
+    return module.detailScale - moduleRevealAdvance + depth * moduleNestedRevealStep
 }
 
 function moduleRevealAlpha(module: Module, scale: number, depth: number) {
@@ -120,7 +130,13 @@ export function drawGrid(
     context.restore()
 }
 
-export function drawWire(context: CanvasRenderingContext2D, wire: Wire, scale: number, selected: boolean) {
+export function drawWire(
+    context: CanvasRenderingContext2D,
+    wire: Wire,
+    scale: number,
+    selected: boolean,
+    animationTime = 0,
+) {
     context.save()
     context.lineWidth = (selected ? 7 : 4) / scale
     context.lineCap = "round"
@@ -129,6 +145,18 @@ export function drawWire(context: CanvasRenderingContext2D, wire: Wire, scale: n
         ? "#d68f00"
         : wire.signal === 1 ? "#d1493f" : wire.signal === 0 ? "#3867d6" : "#263b35"
     strokePath(context, wire.points)
+
+    if (wire.signal !== null) {
+        const direction = wire.signal === 1 ? -1 : 1
+        const pulseOffset = (animationTime / 42) * direction
+        context.save()
+        context.lineWidth = (selected ? 3.4 : 2.4) / scale
+        context.strokeStyle = wire.signal === 1 ? "rgba(255, 236, 206, 0.9)" : "rgba(218, 230, 255, 0.9)"
+        context.setLineDash([10 / scale, 18 / scale])
+        context.lineDashOffset = pulseOffset / scale
+        strokePath(context, wire.points)
+        context.restore()
+    }
 
     for (const point of wire.points) {
         context.beginPath()
@@ -177,6 +205,36 @@ function drawSelection(context: CanvasRenderingContext2D, component: Component, 
         10 / scale,
     )
     context.stroke()
+
+    if (component instanceof Module) {
+        const size = moduleResizeHandleSize / scale
+        const centerX = component.x + component.width
+        const centerY = component.y + component.height
+        const inset = size * 0.18
+        const arrow = size * 0.26
+        const startX = centerX - size / 2 + inset
+        const startY = centerY - size / 2 + inset
+        const endX = centerX + size / 2 - inset
+        const endY = centerY + size / 2 - inset
+        context.setLineDash([])
+        context.strokeStyle = "#d68f00"
+        context.lineWidth = 2.4 / scale
+        context.lineCap = "round"
+        context.lineJoin = "round"
+        context.beginPath()
+        context.moveTo(startX, startY)
+        context.lineTo(endX, endY)
+        context.moveTo(startX, startY)
+        context.lineTo(startX + arrow, startY)
+        context.moveTo(startX, startY)
+        context.lineTo(startX, startY + arrow)
+        context.moveTo(endX, endY)
+        context.lineTo(endX - arrow, endY)
+        context.moveTo(endX, endY)
+        context.lineTo(endX, endY - arrow)
+        context.stroke()
+    }
+
     context.restore()
 }
 
@@ -246,7 +304,9 @@ function drawPowerSource(
     selectedIds: readonly string[],
     pendingPinId: string | null,
 ) {
-    const centerY = source.y + source.height / 2
+    const symbolTopY = source.y + source.height * 0.32
+    const symbolMiddleY = source.y + source.height * 0.5
+    const symbolBottomY = source.y + source.height * 0.68
     const color = source.kind === "vdd" ? "#d1493f" : "#3867d6"
 
     context.save()
@@ -254,7 +314,7 @@ function drawPowerSource(
     context.strokeStyle = color
     context.lineWidth = 3 / scale
     context.beginPath()
-    context.roundRect(source.x, source.y, source.width, source.height, 8)
+    context.roundRect(source.x, source.y, source.width, source.height, Math.min(8, source.width / 5, source.height / 5))
     context.fill()
     context.stroke()
 
@@ -263,19 +323,19 @@ function drawPowerSource(
     context.lineCap = "round"
     context.beginPath()
     if (source.kind === "vdd") {
-        context.moveTo(source.x + 20, centerY - 12)
-        context.lineTo(source.x + 34, centerY - 12)
-        context.moveTo(source.x + 27, centerY - 19)
-        context.lineTo(source.x + 27, centerY - 5)
-        context.moveTo(source.x + 48, centerY - 12)
-        context.lineTo(source.x + 62, centerY - 12)
+        context.moveTo(source.x + source.width * 0.23, symbolTopY)
+        context.lineTo(source.x + source.width * 0.39, symbolTopY)
+        context.moveTo(source.x + source.width * 0.31, source.y + source.height * 0.21)
+        context.lineTo(source.x + source.width * 0.31, source.y + source.height * 0.43)
+        context.moveTo(source.x + source.width * 0.55, symbolTopY)
+        context.lineTo(source.x + source.width * 0.7, symbolTopY)
     } else {
-        context.moveTo(source.x + 22, centerY - 12)
-        context.lineTo(source.x + 62, centerY - 12)
-        context.moveTo(source.x + 30, centerY)
-        context.lineTo(source.x + 54, centerY)
-        context.moveTo(source.x + 38, centerY + 12)
-        context.lineTo(source.x + 46, centerY + 12)
+        context.moveTo(source.x + source.width * 0.25, symbolTopY)
+        context.lineTo(source.x + source.width * 0.7, symbolTopY)
+        context.moveTo(source.x + source.width * 0.34, symbolMiddleY)
+        context.lineTo(source.x + source.width * 0.61, symbolMiddleY)
+        context.moveTo(source.x + source.width * 0.43, symbolBottomY)
+        context.lineTo(source.x + source.width * 0.52, symbolBottomY)
     }
     context.stroke()
 
@@ -329,6 +389,147 @@ function drawInputSource(
     context.restore()
 }
 
+function signalColor(signal: 0 | 1 | null) {
+    return signal === 1 ? "#d1493f" : signal === 0 ? "#3867d6" : "#7d8983"
+}
+
+function signalLabel(signal: 0 | 1 | null) {
+    return signal === null ? "Z" : String(signal)
+}
+
+function drawOutputProbe(
+    context: CanvasRenderingContext2D,
+    probe: OutputProbe,
+    scale: number,
+    selectedIds: readonly string[],
+    pendingPinId: string | null,
+) {
+    const signal = probe.input.signal
+    const color = signalColor(signal)
+
+    context.save()
+    context.fillStyle = signal === 1 ? "#fff7f4" : signal === 0 ? "#f5f8ff" : "#f6f1e8"
+    context.strokeStyle = color
+    context.lineWidth = 3 / scale
+    context.beginPath()
+    context.roundRect(probe.x, probe.y, probe.width, probe.height, 8)
+    context.fill()
+    context.stroke()
+
+    context.fillStyle = color
+    context.font = `${24 / scale}px Inter, sans-serif`
+    context.textAlign = "center"
+    context.textBaseline = "middle"
+    context.fillText(signalLabel(signal), probe.x + probe.width / 2, probe.y + probe.height / 2)
+
+    context.fillStyle = "#263b35"
+    context.font = `${13 / scale}px Inter, sans-serif`
+    context.fillText(probe.name, probe.x + probe.width / 2, probe.y - 10 / scale)
+    context.textBaseline = "alphabetic"
+
+    drawPin(context, probe.input, scale, pendingPinId === probe.input.id)
+
+    if (selectedIds.includes(probe.id)) {
+        drawSelection(context, probe, scale)
+    }
+    context.restore()
+}
+
+function drawLed(
+    context: CanvasRenderingContext2D,
+    led: Led,
+    scale: number,
+    selectedIds: readonly string[],
+    pendingPinId: string | null,
+) {
+    const signal = led.input.signal
+    const color = signalColor(signal)
+    const centerX = led.x + led.width / 2
+    const centerY = led.y + led.height / 2
+
+    context.save()
+    context.fillStyle = "#fffdf8"
+    context.strokeStyle = color
+    context.lineWidth = 3 / scale
+    context.beginPath()
+    context.roundRect(led.x, led.y, led.width, led.height, 8)
+    context.fill()
+    context.stroke()
+
+    context.beginPath()
+    context.arc(centerX, centerY, Math.min(led.width, led.height) * 0.26, 0, Math.PI * 2)
+    context.fillStyle = signal === 1 ? "#ffb3a9" : signal === 0 ? "#dbe4ff" : "#e6e1d8"
+    context.strokeStyle = color
+    context.fill()
+    context.stroke()
+
+    if (signal === 1) {
+        context.beginPath()
+        context.arc(centerX, centerY, Math.min(led.width, led.height) * 0.36, 0, Math.PI * 2)
+        context.strokeStyle = "rgba(209, 73, 63, 0.28)"
+        context.lineWidth = 7 / scale
+        context.stroke()
+    }
+
+    context.fillStyle = "#263b35"
+    context.font = `${13 / scale}px Inter, sans-serif`
+    context.textAlign = "center"
+    context.fillText(led.name, led.x + led.width / 2, led.y - 10 / scale)
+
+    drawPin(context, led.input, scale, pendingPinId === led.input.id)
+
+    if (selectedIds.includes(led.id)) {
+        drawSelection(context, led, scale)
+    }
+    context.restore()
+}
+
+function drawClockSource(
+    context: CanvasRenderingContext2D,
+    clock: ClockSource,
+    scale: number,
+    selectedIds: readonly string[],
+    pendingPinId: string | null,
+) {
+    const color = signalColor(clock.output.signal)
+    const centerY = clock.y + clock.height / 2
+
+    context.save()
+    context.fillStyle = "#fffdf8"
+    context.strokeStyle = color
+    context.lineWidth = 3 / scale
+    context.beginPath()
+    context.roundRect(clock.x, clock.y, clock.width, clock.height, 8)
+    context.fill()
+    context.stroke()
+
+    context.strokeStyle = color
+    context.lineWidth = 3 / scale
+    context.lineJoin = "round"
+    context.beginPath()
+    context.moveTo(clock.x + 18, centerY + 10)
+    context.lineTo(clock.x + 18, centerY - 10)
+    context.lineTo(clock.x + 34, centerY - 10)
+    context.lineTo(clock.x + 34, centerY + 10)
+    context.lineTo(clock.x + 50, centerY + 10)
+    context.lineTo(clock.x + 50, centerY - 10)
+    context.lineTo(clock.x + 66, centerY - 10)
+    context.lineTo(clock.x + 66, centerY + 10)
+    context.stroke()
+
+    context.fillStyle = "#263b35"
+    context.font = `${13 / scale}px Inter, sans-serif`
+    context.textAlign = "center"
+    context.fillText(clock.name, clock.x + clock.width / 2, clock.y - 10 / scale)
+
+    drawPin(context, clock.output, scale, pendingPinId === clock.output.id)
+
+    if (selectedIds.includes(clock.id)) {
+        drawSelection(context, clock, scale)
+    }
+    context.restore()
+}
+
 function drawModuleShell(
     context: CanvasRenderingContext2D,
     module: Module,
@@ -369,8 +570,10 @@ function drawModuleDetail(
     scale: number,
     depth: number,
     selectedIds: readonly string[],
+    transparentIds: readonly string[],
     selectedWireId: string | null,
     pendingPinId: string | null,
+    animationTime: number,
 ) {
     context.save()
     context.fillStyle = "rgba(255, 250, 240, 0.48)"
@@ -387,11 +590,11 @@ function drawModuleDetail(
     context.fillText(module.name, module.x + 18 / scale, module.y + 30 / scale)
 
     for (const wire of module.wires) {
-        drawWire(context, wire, scale, selectedWireId === wire.id)
+        drawWire(context, wire, scale, selectedWireId === wire.id, animationTime)
     }
 
     for (const child of module.children) {
-        drawComponent(context, child, scale, selectedIds, selectedWireId, pendingPinId, depth + 1)
+        drawComponent(context, child, scale, selectedIds, transparentIds, selectedWireId, pendingPinId, depth + 1, animationTime)
     }
 
     for (const pin of module.pins) {
@@ -405,30 +608,74 @@ export function drawComponent(
     component: Component,
     scale: number,
     selectedIds: readonly string[],
+    transparentIds: readonly string[],
     selectedWireId: string | null,
     pendingPinId: string | null,
     depth = 0,
+    animationTime = 0,
 ) {
+    const isTransparent = transparentIds.includes(component.id)
+    if (isTransparent && !(component instanceof Module)) {
+        context.save()
+        context.globalAlpha *= 0.28
+    }
+
     if (component instanceof Transistor) {
         drawTransistor(context, component, scale, selectedIds, pendingPinId)
+        if (isTransparent) {
+            context.restore()
+        }
         return
     }
 
     if (component instanceof PowerSource) {
         drawPowerSource(context, component, scale, selectedIds, pendingPinId)
+        if (isTransparent) {
+            context.restore()
+        }
         return
     }
 
     if (component instanceof InputSource) {
         drawInputSource(context, component, scale, selectedIds, pendingPinId)
+        if (isTransparent) {
+            context.restore()
+        }
+        return
+    }
+
+    if (component instanceof OutputProbe) {
+        drawOutputProbe(context, component, scale, selectedIds, pendingPinId)
+        if (isTransparent) {
+            context.restore()
+        }
+        return
+    }
+
+    if (component instanceof Led) {
+        drawLed(context, component, scale, selectedIds, pendingPinId)
+        if (isTransparent) {
+            context.restore()
+        }
+        return
+    }
+
+    if (component instanceof ClockSource) {
+        drawClockSource(context, component, scale, selectedIds, pendingPinId)
+        if (isTransparent) {
+            context.restore()
+        }
         return
     }
 
     if (component instanceof Module) {
-        const alpha = moduleRevealAlpha(component, scale, depth)
+        const revealAlpha = moduleRevealAlpha(component, scale, depth)
+        const alpha = isTransparent
+            ? { shell: Math.max(0.18, revealAlpha.shell * 0.28), detail: 1 }
+            : revealAlpha
 
         drawWithAlpha(context, alpha.detail, () => {
-            drawModuleDetail(context, component, scale, depth, selectedIds, selectedWireId, pendingPinId)
+            drawModuleDetail(context, component, scale, depth, selectedIds, transparentIds, selectedWireId, pendingPinId, animationTime)
         })
         drawWithAlpha(context, alpha.shell, () => {
             drawModuleShell(context, component, scale, pendingPinId)
@@ -437,5 +684,9 @@ export function drawComponent(
         if (selectedIds.includes(component.id)) {
             drawSelection(context, component, scale)
         }
+    }
+
+    if (isTransparent && !(component instanceof Module)) {
+        context.restore()
     }
 }

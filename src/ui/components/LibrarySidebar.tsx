@@ -1,12 +1,19 @@
 import type { ModuleDefinitionData } from "../../domain/circuit/schema/CircuitSchema"
+import { useMemo, useState } from "react"
 import {
     libraryActionRowStyle,
+    libraryDetailGridStyle,
+    libraryDetailStyle,
+    libraryDetailTitleStyle,
     libraryEmptyStyle,
     libraryHeaderStyle,
+    libraryItemTitleStyle,
     libraryItemMetaStyle,
     libraryItemStyle,
     libraryListStyle,
     libraryPanelStyle,
+    librarySearchStyle,
+    libraryStatStyle,
     libraryTabStyle,
     libraryTitleStyle,
     panelButtonStyle,
@@ -46,10 +53,24 @@ export function LibrarySidebar({
     onImportModule,
     onToggle,
 }: LibrarySidebarProps) {
+    const [query, setQuery] = useState("")
+    const filteredModules = useMemo(() => {
+        const normalizedQuery = query.trim().toLowerCase()
+        if (!normalizedQuery) {
+            return modules
+        }
+
+        return modules.filter((module) => module.name.toLowerCase().includes(normalizedQuery))
+    }, [modules, query])
+    const selectedModule = modules.find((module) => module.id === selectedModuleId) ?? null
+    const selectedModuleSize = selectedModule
+        ? `${Math.round(selectedModule.bounds.width)} x ${Math.round(selectedModule.bounds.height)}`
+        : ""
+
     return <aside
         style={{
             ...libraryPanelStyle,
-            transform: isOpen ? "translateX(0)" : "translateX(calc(100% + 18px))",
+            transform: isOpen ? "translateX(0)" : "translateX(calc(-100% - 18px))",
         }}
         aria-label="Module library"
         aria-hidden={!isOpen}
@@ -60,7 +81,7 @@ export function LibrarySidebar({
             onClick={onToggle}
             style={libraryTabStyle}
         >
-            {isOpen ? ">" : "<"}
+            {isOpen ? "<" : ">"}
         </button>
         <div style={libraryHeaderStyle}>
             <h2 style={libraryTitleStyle}>Library</h2>
@@ -88,10 +109,20 @@ export function LibrarySidebar({
             Save selected
         </button>
 
+        <input
+            aria-label="Search library modules"
+            placeholder="Search modules"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            style={librarySearchStyle}
+        />
+
         <div style={libraryListStyle}>
             {modules.length === 0
-                ? <div style={libraryEmptyStyle}>No modules saved</div>
-                : modules.map((module) => {
+                ? <div style={libraryEmptyStyle}>No modules saved yet. Select a module on the canvas and save it here.</div>
+                : filteredModules.length === 0
+                    ? <div style={libraryEmptyStyle}>No modules match "{query}".</div>
+                    : filteredModules.map((module) => {
                     const selected = module.id === selectedModuleId
                     return <button
                         key={module.id}
@@ -103,13 +134,23 @@ export function LibrarySidebar({
                             background: selected ? "#edf7f4" : libraryItemStyle.background,
                         }}
                     >
-                        <span>{module.name}</span>
+                        <span style={libraryItemTitleStyle}>{module.name}</span>
                         <span style={libraryItemMetaStyle}>
-                            {module.components.length} parts
+                            {module.components.length} parts · {module.wires.length} wires · {Math.round(module.bounds.width)}x{Math.round(module.bounds.height)}
                         </span>
                     </button>
                 })}
         </div>
+
+        {selectedModule && <section style={libraryDetailStyle} aria-label="Selected module details">
+            <h3 style={libraryDetailTitleStyle}>{selectedModule.name}</h3>
+            <div style={libraryDetailGridStyle}>
+                <div style={libraryStatStyle}>{selectedModule.components.length} parts</div>
+                <div style={libraryStatStyle}>{selectedModule.wires.length} wires</div>
+                <div style={libraryStatStyle}>{selectedModule.pins.length} pins</div>
+                <div style={libraryStatStyle}>{selectedModuleSize}</div>
+            </div>
+        </section>}
 
         <div style={libraryActionRowStyle}>
             <button

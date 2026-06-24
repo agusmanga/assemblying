@@ -87,7 +87,7 @@ export function createSampleCircuit() {
         children: [pmos, nmos],
         wires: [input, vdd, output, ground],
         pins: [inputPin, outputPin, vddPin, groundPin],
-        detailScale: 0.85,
+        detailScale: 0.7,
     })
 
     const rootInput = new Wire({

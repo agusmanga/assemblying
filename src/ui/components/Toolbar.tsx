@@ -1,15 +1,13 @@
-import type { PowerSourceKind } from "../../domain/circuit/Model/PowerSource"
-import type { TransistorKind } from "../../domain/circuit/Model/Transistor"
-import { dividerStyle, toolbarStyle, toolButtonStyle, zoomStyle } from "../styles"
+import { toolbarGroupStyle, toolbarStyle, toolButtonStyle, zoomStyle } from "../styles"
+import type { ToolComponentKind } from "../types"
 
 type ToolbarProps = {
     scale: number
     canDeleteSelection: boolean
     canModularizeSelection: boolean
     canDemodularizeSelection: boolean
-    onCreateTransistor: (kind: TransistorKind) => void
-    onCreatePowerSource: (kind: PowerSourceKind) => void
-    onCreateInputSource: () => void
+    activeTool: ToolComponentKind | null
+    onPickTool: (kind: ToolComponentKind) => void
     onDeleteSelected: () => void
     onModularizeSelected: () => void
     onDemodularizeSelected: () => void
@@ -19,6 +17,7 @@ type ToolbarProps = {
     onZoomOut: () => void
     onZoomIn: () => void
     onResetView: () => void
+    onShowOnboarding: () => void
 }
 
 export function Toolbar({
@@ -26,9 +25,8 @@ export function Toolbar({
     canDeleteSelection,
     canModularizeSelection,
     canDemodularizeSelection,
-    onCreateTransistor,
-    onCreatePowerSource,
-    onCreateInputSource,
+    activeTool,
+    onPickTool,
     onDeleteSelected,
     onModularizeSelected,
     onDemodularizeSelected,
@@ -38,141 +36,144 @@ export function Toolbar({
     onZoomOut,
     onZoomIn,
     onResetView,
+    onShowOnboarding,
 }: ToolbarProps) {
+    const disabledStyle = (enabled: boolean) => ({
+        opacity: enabled ? 1 : 0.45,
+        cursor: enabled ? "pointer" : "default",
+    })
+    const componentToolButton = (
+        kind: ToolComponentKind,
+        label: string,
+        title: string,
+        color: string,
+    ) => (
+        <button
+            aria-label={title}
+            title={`${title}. Press and drag to canvas.`}
+            onPointerDown={(event) => {
+                event.preventDefault()
+                onPickTool(kind)
+            }}
+            style={{
+                ...toolButtonStyle,
+                color,
+                borderColor: activeTool === kind ? "#d68f00" : toolButtonStyle.borderColor,
+                background: activeTool === kind ? "#fff4d8" : toolButtonStyle.background,
+            }}
+        >
+            {label}
+        </button>
+    )
+
     return <section style={toolbarStyle}>
-        <button
-            aria-label="Create NMOS"
-            title="Create NMOS"
-            onClick={() => onCreateTransistor("nmos")}
-            style={{ ...toolButtonStyle, color: "#1f6f64" }}
-        >
-            N
-        </button>
-        <button
-            aria-label="Create PMOS"
-            title="Create PMOS"
-            onClick={() => onCreateTransistor("pmos")}
-            style={{ ...toolButtonStyle, color: "#8d3f7c" }}
-        >
-            P
-        </button>
-        <button
-            aria-label="Create VDD"
-            title="Create VDD"
-            onClick={() => onCreatePowerSource("vdd")}
-            style={{ ...toolButtonStyle, color: "#d1493f" }}
-        >
-            V
-        </button>
-        <button
-            aria-label="Create GND"
-            title="Create GND"
-            onClick={() => onCreatePowerSource("gnd")}
-            style={{ ...toolButtonStyle, color: "#3867d6" }}
-        >
-            G
-        </button>
-        <button
-            aria-label="Create input"
-            title="Create input"
-            onClick={onCreateInputSource}
-            style={{ ...toolButtonStyle, color: "#b26b00" }}
-        >
-            I
-        </button>
-        <button
-            aria-label="Delete selected"
-            title="Delete selected"
-            disabled={!canDeleteSelection}
-            onClick={onDeleteSelected}
-            style={{
-                ...toolButtonStyle,
-                opacity: canDeleteSelection ? 1 : 0.45,
-                cursor: canDeleteSelection ? "pointer" : "default",
-            }}
-        >
-            Del
-        </button>
-        <button
-            aria-label="Create module from selection"
-            title="Create module from selection"
-            disabled={!canModularizeSelection}
-            onClick={onModularizeSelected}
-            style={{
-                ...toolButtonStyle,
-                width: 44,
-                opacity: canModularizeSelection ? 1 : 0.45,
-                cursor: canModularizeSelection ? "pointer" : "default",
-            }}
-        >
-            Mod
-        </button>
-        <button
-            aria-label="Break selected module apart"
-            title="Break selected module apart"
-            disabled={!canDemodularizeSelection}
-            onClick={onDemodularizeSelected}
-            style={{
-                ...toolButtonStyle,
-                width: 58,
-                opacity: canDemodularizeSelection ? 1 : 0.45,
-                cursor: canDemodularizeSelection ? "pointer" : "default",
-            }}
-        >
-            Unmod
-        </button>
-        <div style={dividerStyle} />
-        <button
-            aria-label="Export circuit JSON"
-            title="Export circuit JSON"
-            onClick={onExportCircuit}
-            style={{ ...toolButtonStyle, width: 44 }}
-        >
-            Exp
-        </button>
-        <button
-            aria-label="Import circuit JSON"
-            title="Import circuit JSON"
-            onClick={onImportCircuit}
-            style={{ ...toolButtonStyle, width: 44 }}
-        >
-            Imp
-        </button>
-        <button
-            aria-label="Create new circuit"
-            title="Create new circuit"
-            onClick={onCreateNewCircuit}
-            style={{ ...toolButtonStyle, width: 44 }}
-        >
-            New
-        </button>
-        <div style={dividerStyle} />
-        <button
-            aria-label="Zoom out"
-            title="Zoom out"
-            onClick={onZoomOut}
-            style={toolButtonStyle}
-        >
-            -
-        </button>
-        <div style={zoomStyle}>
-            {Math.round(scale * 100)}%
+        <div style={toolbarGroupStyle}>
+            {componentToolButton("nmos", "N", "Create NMOS", "#1f6f64")}
+            {componentToolButton("pmos", "P", "Create PMOS", "#8d3f7c")}
+            {componentToolButton("vdd", "1", "Create VDD", "#d1493f")}
+            {componentToolButton("gnd", "0", "Create GND", "#3867d6")}
+            {componentToolButton("input", "I", "Create input", "#b26b00")}
+            {componentToolButton("output", "O", "Create output probe", "#263b35")}
+            {componentToolButton("led", "L", "Create LED", "#d1493f")}
+            {componentToolButton("clock", "C", "Create clock", "#7b4bb2")}
         </div>
-        <button
-            aria-label="Zoom in"
-            title="Zoom in"
-            onClick={onZoomIn}
-            style={toolButtonStyle}
-        >
-            +
-        </button>
-        <button
-            aria-label="Reset view"
-            title="Reset view"
-            onClick={onResetView}
-            style={{ ...toolButtonStyle, width: 64 }}
-        >
-            1:1
-        </button>
+
+        <div style={toolbarGroupStyle}>
+            <button
+                aria-label="Delete selected"
+                title="Delete selected"
+                disabled={!canDeleteSelection}
+                onClick={onDeleteSelected}
+                style={{ ...toolButtonStyle, ...disabledStyle(canDeleteSelection) }}
+            >
+                Del
+            </button>
+            <button
+                aria-label="Create module from selection"
+                title="Create module from selection"
+                disabled={!canModularizeSelection}
+                onClick={onModularizeSelected}
+                style={{ ...toolButtonStyle, width: 42, ...disabledStyle(canModularizeSelection) }}
+            >
+                Mod
+            </button>
+            <button
+                aria-label="Break selected module apart"
+                title="Break selected module apart"
+                disabled={!canDemodularizeSelection}
+                onClick={onDemodularizeSelected}
+                style={{ ...toolButtonStyle, width: 44, ...disabledStyle(canDemodularizeSelection) }}
+            >
+                Ung
+            </button>
+        </div>
+
+        <div style={toolbarGroupStyle}>
+            <button
+                aria-label="Export circuit JSON"
+                title="Export circuit JSON"
+                onClick={onExportCircuit}
+                style={{ ...toolButtonStyle, width: 40 }}
+            >
+                Out
+            </button>
+            <button
+                aria-label="Import circuit JSON"
+                title="Import circuit JSON"
+                onClick={onImportCircuit}
+                style={{ ...toolButtonStyle, width: 36 }}
+            >
+                In
+            </button>
+            <button
+                aria-label="Create new circuit"
+                title="Create new circuit"
+                onClick={onCreateNewCircuit}
+                style={{ ...toolButtonStyle, width: 36 }}
+            >
+                New
+            </button>
+        </div>
+
+        <div style={toolbarGroupStyle}>
+            <button
+                aria-label="Zoom out"
+                title="Zoom out"
+                onClick={onZoomOut}
+                style={toolButtonStyle}
+            >
+                -
+            </button>
+            <div style={zoomStyle}>
+                {Math.round(scale * 100)}%
+            </div>
+            <button
+                aria-label="Zoom in"
+                title="Zoom in"
+                onClick={onZoomIn}
+                style={toolButtonStyle}
+            >
+                +
+            </button>
+            <button
+                aria-label="Reset view"
+                title="Reset view"
+                onClick={onResetView}
+                style={{ ...toolButtonStyle, width: 48 }}
+            >
+                1:1
+            </button>
+        </div>
+
+        <div style={toolbarGroupStyle}>
+            <button
+                aria-label="Show onboarding"
+                title="Show onboarding"
+                onClick={onShowOnboarding}
+                style={toolButtonStyle}
+            >
+                ?
+            </button>
+        </div>
     </section>
 }

@@ -10,6 +10,16 @@ export type Viewport = Point & {
     scale: number
 }
 
+export type ToolComponentKind =
+    | "nmos"
+    | "pmos"
+    | "vdd"
+    | "gnd"
+    | "input"
+    | "output"
+    | "led"
+    | "clock"
+
 export type DragState =
     | {
         type: "pan"
@@ -23,6 +33,11 @@ export type DragState =
         pointerId: number
         componentId: string
         previousWorld: Point
+    }
+    | {
+        type: "module-resize"
+        pointerId: number
+        moduleId: string
     }
 
 export type PinHit = {
