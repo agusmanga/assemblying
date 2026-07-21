@@ -23,9 +23,6 @@ import { drawComponent, drawGrid, drawWire, setupCanvas, strokePath } from "./ui
 import {
     maxScale,
     minScale,
-    moduleNestedRevealStep,
-    moduleRevealAdvance,
-    moduleRevealRange,
 } from "./ui/constants"
 import { LibrarySidebar } from "./ui/components/LibrarySidebar"
 import { ModuleBreadcrumb } from "./ui/components/ModuleBreadcrumb"
@@ -135,6 +132,7 @@ export function App() {
     const [activeTool, setActiveTool] = useState<ToolComponentKind | null>(null)
     const pendingPinId = pendingConnection?.type === "pin" ? pendingConnection.pinId : null
     const activeModulePath = modulePathTo(circuit, activeModuleId) ?? [circuit]
+    const openModuleIds = new Set(activeModulePath.slice(1).map((module) => module.id))
     const canDeleteSelection = !!selectedWireId || selectedIds.some((id) => canRemoveComponent(circuit, id))
     const canModularizeSelection = selectedIds.length > 0 && !selectedWireId
     const canSaveModuleSelection = selectedIds.length === 1
@@ -427,29 +425,44 @@ export function App() {
         setSelectedWireId(null)
         setPendingConnection(null)
 
+        const path = modulePathTo(circuit, module.id)
+        const openModuleIds = new Set(
+            module === circuit ? [] : (path ?? []).slice(1).map((pathModule) => pathModule.id),
+        )
+        setTransparentIds((current) => current
+            .filter((id) => !(findComponentById(circuit, id) instanceof Module))
+            .concat([...openModuleIds]))
+
         if (module === circuit) {
             return
         }
 
         const canvas = canvasRef.current
-        const path = modulePathTo(circuit, module.id)
         if (!canvas || !path) {
             return
         }
 
         const rect = canvas.getBoundingClientRect()
-        const depth = Math.max(0, path.length - 2)
-        const detailScale = module.detailScale <= 0
-            ? viewport.scale
-            : module.detailScale - moduleRevealAdvance + depth * moduleNestedRevealStep + moduleRevealRange / 2 + 0.08
-        const scale = clamp(Math.max(viewport.scale, detailScale), minScale, maxScale)
+        const leftInset = isLibraryVisible ? 296 : 32
+        const rightInset = 32
+        const topInset = 96
+        const bottomInset = 72
+        const availableWidth = Math.max(160, rect.width - leftInset - rightInset)
+        const availableHeight = Math.max(160, rect.height - topInset - bottomInset)
+        const fitScale = Math.min(
+            availableWidth / Math.max(1, module.width),
+            availableHeight / Math.max(1, module.height),
+        ) * 0.9
+        const scale = clamp(Math.min(fitScale, 1.25), minScale, maxScale)
         const centerX = module.x + module.width / 2
         const centerY = module.y + module.height / 2
+        const screenCenterX = leftInset + availableWidth / 2
+        const screenCenterY = topInset + availableHeight / 2
 
         setViewport({
             scale,
-            x: rect.width / 2 - centerX * scale,
-            y: rect.height / 2 - centerY * scale,
+            x: screenCenterX - centerX * scale,
+            y: screenCenterY - centerY * scale,
         })
     }
 
@@ -626,22 +639,15 @@ export function App() {
                     return
                 }
 
-                if (toggleInputAt(circuit, world, viewport.scale)) {
+                if (toggleInputAt(circuit, world, viewport.scale, openModuleIds)) {
                     setPendingConnection(null)
                     rerenderCircuit()
                     return
                 }
 
-                const component = findComponentAt(circuit, world, viewport.scale)
+                const component = findComponentAt(circuit, world, viewport.scale, openModuleIds)
                 if (component instanceof Module) {
-                    setTransparentIds((current) => (
-                        current.includes(component.id)
-                            ? current.filter((id) => id !== component.id)
-                            : [...current, component.id]
-                    ))
-                    setSelectedIds([component.id])
-                    setSelectedWireId(null)
-                    setPendingConnection(null)
+                    focusModule(component)
                     return
                 }
 
@@ -664,7 +670,7 @@ export function App() {
                 const world = worldFromEvent(event)
                 setPointerWorld(world)
 
-                const resizeModuleHit = findModuleResizeHandleAt(circuit, world, viewport.scale)
+                const resizeModuleHit = findModuleResizeHandleAt(circuit, world, viewport.scale, openModuleIds)
                 if (resizeModuleHit && selectedIds.includes(resizeModuleHit.id)) {
                     setSelectedIds([resizeModuleHit.id])
                     setSelectedWireId(null)
@@ -678,7 +684,7 @@ export function App() {
                     return
                 }
 
-                const pinHit = findPinAt(circuit, world, viewport.scale)
+                const pinHit = findPinAt(circuit, world, viewport.scale, openModuleIds)
                 if (pinHit) {
                     const nextConnection: PendingConnection = { type: "pin", pinId: pinHit.pin.id }
                     if (pendingConnection) {
@@ -693,7 +699,7 @@ export function App() {
                     return
                 }
 
-                const wireHit = findWireAt(circuit, world, viewport.scale)
+                const wireHit = findWireAt(circuit, world, viewport.scale, openModuleIds)
                 if (wireHit) {
                     const nextConnection: PendingConnection = {
                         type: "wire",
@@ -714,7 +720,7 @@ export function App() {
                     return
                 }
 
-                const component = findComponentAt(circuit, world, viewport.scale)
+                const component = findComponentAt(circuit, world, viewport.scale, openModuleIds)
                 if (component) {
                     const nextSelectedIds = event.shiftKey
                         ? selectedIds.includes(component.id)

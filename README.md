@@ -26,6 +26,8 @@ The project is currently a browser-based prototype built with React, TypeScript,
 - Click `Mod` to turn the selected components into a module
 - Click two pins, wires, or pin/wire endpoints to connect them
 - Double-click an input source to toggle its value
+- Double-click a module to center it and reveal its internal circuit
+- Use the module breadcrumb in the bottom-right corner to navigate back out
 - Use the mouse wheel to zoom
 - Drag the canvas to pan
 - Drag selected components to move them
@@ -57,4 +59,3 @@ npm run lint
 - `src/ui/circuit/editor.ts` contains circuit editing, hit testing, wiring, deletion, and modularisation logic
 - `src/domain/circuit/Model/` contains the circuit domain model
 - `src/domain/circuit/sampleCircuit.ts` defines the initial sample circuit
-

@@ -62,10 +62,16 @@ function pointInComponent(point: Point, component: Component) {
         && point.y <= component.y + component.height
 }
 
-export function findModuleResizeHandleAt(module: Module, point: Point, scale: number, depth = 0): Module | null {
+export function findModuleResizeHandleAt(
+    module: Module,
+    point: Point,
+    scale: number,
+    openModuleIds: ReadonlySet<string> = new Set(),
+    depth = 0,
+): Module | null {
     for (const child of [...module.children].reverse()) {
-        if (child instanceof Module && canReachModuleDetail(child, scale, depth)) {
-            const nested = findModuleResizeHandleAt(child, point, scale, depth + 1)
+        if (child instanceof Module && (openModuleIds.has(child.id) || canReachModuleDetail(child, scale, depth))) {
+            const nested = findModuleResizeHandleAt(child, point, scale, openModuleIds, depth + 1)
             if (nested) {
                 return nested
             }
@@ -260,10 +266,16 @@ function canReachModuleDetail(module: Module, scale: number, depth: number) {
     return scale >= moduleDetailInteractionStart(module, depth)
 }
 
-export function findComponentAt(module: Module, point: Point, scale: number, depth = 0): Component | null {
+export function findComponentAt(
+    module: Module,
+    point: Point,
+    scale: number,
+    openModuleIds: ReadonlySet<string> = new Set(),
+    depth = 0,
+): Component | null {
     for (const child of [...module.children].reverse()) {
-        if (child instanceof Module && canReachModuleDetail(child, scale, depth)) {
-            const nested = findComponentAt(child, point, scale, depth + 1)
+        if (child instanceof Module && (openModuleIds.has(child.id) || canReachModuleDetail(child, scale, depth))) {
+            const nested = findComponentAt(child, point, scale, openModuleIds, depth + 1)
             if (nested) {
                 return nested
             }
@@ -343,12 +355,17 @@ function collectWires(module: Module): Wire[] {
     return wires
 }
 
-function collectVisibleWires(module: Module, scale: number, depth = 0): Wire[] {
+function collectVisibleWires(
+    module: Module,
+    scale: number,
+    openModuleIds: ReadonlySet<string>,
+    depth = 0,
+): Wire[] {
     const wires = [...module.wires]
 
     for (const child of module.children) {
-        if (child instanceof Module && canReachModuleDetail(child, scale, depth)) {
-            wires.push(...collectVisibleWires(child, scale, depth + 1))
+        if (child instanceof Module && (openModuleIds.has(child.id) || canReachModuleDetail(child, scale, depth))) {
+            wires.push(...collectVisibleWires(child, scale, openModuleIds, depth + 1))
         }
     }
 
@@ -537,10 +554,16 @@ export function syncDirectWires(module: Module) {
     }
 }
 
-export function findPinAt(module: Module, point: Point, scale: number, depth = 0): PinHit | null {
+export function findPinAt(
+    module: Module,
+    point: Point,
+    scale: number,
+    openModuleIds: ReadonlySet<string> = new Set(),
+    depth = 0,
+): PinHit | null {
     for (const child of [...module.children].reverse()) {
-        if (child instanceof Module && canReachModuleDetail(child, scale, depth)) {
-            const nested = findPinAt(child, point, scale, depth + 1)
+        if (child instanceof Module && (openModuleIds.has(child.id) || canReachModuleDetail(child, scale, depth))) {
+            const nested = findPinAt(child, point, scale, openModuleIds, depth + 1)
             if (nested) {
                 return nested
             }
@@ -606,11 +629,16 @@ function findWireById(module: Module, id: string): Wire | null {
     return null
 }
 
-export function findWireAt(module: Module, point: Point, scale: number): WireHit | null {
+export function findWireAt(
+    module: Module,
+    point: Point,
+    scale: number,
+    openModuleIds: ReadonlySet<string> = new Set(),
+): WireHit | null {
     let closest: WireHit | null = null
     let closestDistance = wireHitRadius / scale
 
-    for (const wire of collectVisibleWires(module, scale)) {
+    for (const wire of collectVisibleWires(module, scale, openModuleIds)) {
         for (let index = 0; index < wire.points.length - 1; index += 1) {
             const hitPoint = closestPointOnSegment(point, wire.points[index], wire.points[index + 1])
             const hitDistance = distance(point, hitPoint)
@@ -911,8 +939,13 @@ export function createModuleFromSelection(root: Module, componentIds: readonly s
     return module
 }
 
-export function toggleInputAt(root: Module, point: Point, scale: number) {
-    const component = findComponentAt(root, point, scale)
+export function toggleInputAt(
+    root: Module,
+    point: Point,
+    scale: number,
+    openModuleIds: ReadonlySet<string> = new Set(),
+) {
+    const component = findComponentAt(root, point, scale, openModuleIds)
     if (!(component instanceof InputSource)) {
         return false
     }
